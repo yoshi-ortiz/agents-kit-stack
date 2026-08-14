@@ -61,6 +61,10 @@ NOISE_DIRS = {".Spotlight-V100", ".fseventsd", ".TemporaryItems", "__MACOSX"}
 # used to rank competing elements; it is set by the user, never by the agent.
 DECISION_STATES = ("proposed", "approved", "superseded", "rejected")
 STAR_RANGE = (1, 5)
+# Two feedback signals, deliberately separate. Stars carry strength; sentiment
+# carries direction. Sentiment maps to a verdict and, when the user gave no
+# star, to a fixed default rank -- fixed so replaying a ledger is reproducible.
+SENTIMENTS = {"like": ("approved", 4), "dislike": ("rejected", 1)}
 
 
 class HarnessError(Exception):
@@ -243,8 +247,13 @@ def adopt_companion(project_root: Path, ledger_path: Path) -> tuple[int, int]:
     """
     if not ledger_path.is_file():
         raise HarnessError(f"companion ledger not found: {ledger_path}")
-    adopted = skipped = 0
-    for line in ledger_path.read_text(encoding="utf-8").splitlines():
+
+    def is_star(value: object) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and STAR_RANGE[0] <= value <= STAR_RANGE[1]
+
+    accepted: list[tuple[int, int, str, str, int, str]] = []
+    skipped = 0
+    for index, line in enumerate(ledger_path.read_text(encoding="utf-8").splitlines()):
         line = line.strip()
         if not line:
             continue
@@ -253,19 +262,77 @@ def adopt_companion(project_root: Path, ledger_path: Path) -> tuple[int, int]:
         except json.JSONDecodeError:
             skipped += 1
             continue
-        element, stars = event.get("element"), event.get("stars")
-        # A click carrying no design-element id names a screen-local label, not
-        # a binding element. Report it rather than guessing an id for it.
-        if not element or not isinstance(stars, bool.__base__) or isinstance(stars, bool):
+        element = event.get("element")
+        stars, sentiment = event.get("stars"), event.get("sentiment")
+        # An interaction carrying no design-element id names a screen-local
+        # label, not a binding element. Report it rather than guessing an id.
+        if not element or not isinstance(element, str):
             skipped += 1
             continue
-        if not STAR_RANGE[0] <= stars <= STAR_RANGE[1]:
+        if sentiment is not None and sentiment not in SENTIMENTS:
             skipped += 1
             continue
-        evidence = str(event.get("text") or "").strip() or f"companion {event.get('type', 'rank')}: {stars} star"
-        record_decision(project_root, element, "approved", stars, evidence[:400], [])
-        adopted += 1
-    return adopted, skipped
+        if sentiment is None and not is_star(stars):
+            skipped += 1
+            continue
+        if sentiment is not None:
+            verdict, default_stars = SENTIMENTS[sentiment]
+            rank = stars if is_star(stars) else default_stars
+        else:
+            verdict, rank = "approved", stars
+        evidence = str(event.get("text") or "").strip() or (
+            f"companion {sentiment}: {rank} star" if sentiment else f"companion rank: {rank} star")
+        # Replay order is fixed by (timestamp, file position) so adopting the
+        # same ledger twice always yields the same ledger.
+        stamp = event.get("timestamp")
+        stamp = stamp if isinstance(stamp, (int, float)) and not isinstance(stamp, bool) else 0
+        accepted.append((int(stamp), index, element, verdict, rank, evidence[:400]))
+
+    for _, _, element, verdict, rank, evidence in sorted(accepted, key=lambda row: (row[0], row[1])):
+        record_decision(project_root, element, verdict, rank, evidence, [])
+    return len(accepted), skipped
+
+
+FEEDBACK_STYLE = """<style>
+.dh-fb{font:600 11px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;color:#111;
+ border:1px solid currentColor;padding:6px 8px;display:flex;gap:10px;align-items:center;
+ flex-wrap:wrap;background:#fff}
+.dh-fb b{font-weight:800}
+.dh-fb .dh-stars{display:flex;gap:2px}
+.dh-fb [data-rank],.dh-fb [data-sentiment]{cursor:pointer;user-select:none;
+ border:1px solid currentColor;padding:1px 5px;background:transparent;line-height:1.4}
+.dh-fb [data-rank].on{background:#111;color:#fff}
+.dh-fb [data-sentiment].on{background:#111;color:#fff}
+</style>"""
+
+
+def render_feedback_controls(decisions: dict[str, object]) -> str:
+    """Emit rank + sentiment controls for every element in standing.
+
+    Generated from the ledger so a screen cannot invent a design-element id.
+    Same ledger in, byte-identical markup out.
+    """
+    live = [e for e in decisions["elements"] if e["state"] in ("approved", "proposed")]
+    lines = [FEEDBACK_STYLE, '<div class="dh-feedback">']
+    if not live:
+        lines.append("<!-- no elements in standing; record one with `decide` first -->")
+    for entry in sorted(live, key=lambda item: item["element"]):
+        element, stars = entry["element"], entry["stars"]
+        lines.append(
+            f'<div class="dh-fb" data-element="{element}" data-stars="{stars}" data-label="{element}">'
+        )
+        lines.append(f"<b>{element}</b>")
+        stars_markup = "".join(
+            f'<span data-rank="{n}"{" class=\"on\"" if n <= stars else ""}>&#9733;</span>'
+            for n in range(STAR_RANGE[0], STAR_RANGE[1] + 1)
+        )
+        lines.append(f'<span class="dh-stars">{stars_markup}</span>')
+        for name in sorted(SENTIMENTS):
+            glyph = "&#128077;" if name == "like" else "&#128078;"
+            lines.append(f'<span data-sentiment="{name}" title="{name}">{glyph}</span>')
+        lines.append("</div>")
+    lines.append("</div>")
+    return "\n".join(lines) + "\n"
 
 
 def init_harness(project_root: Path, source_root: Path, profiles: list[str]) -> Path:
@@ -414,13 +481,17 @@ def self_test() -> None:
         # design-element id must be skipped rather than guessed at.
         companion = root / "decisions.jsonl"
         companion.write_text("\n".join([
-            json.dumps({"type": "rank", "element": "form.paper.white", "stars": 5, "text": "user: form stays white"}),
+            json.dumps({"type": "rank", "element": "form.paper.white", "stars": 5, "text": "user: form stays white", "timestamp": 30}),
             json.dumps({"type": "click", "choice": "screen-local-slug", "element": None, "stars": None}),
-            json.dumps({"type": "rank", "element": "palette.inferred", "stars": 1}),
+            json.dumps({"type": "rank", "element": "palette.inferred", "stars": 1, "timestamp": 10}),
+            json.dumps({"type": "sentiment", "element": "cover.ring.kicker", "sentiment": "like", "timestamp": 20}),
+            json.dumps({"type": "sentiment", "element": "cover.background.black", "sentiment": "dislike", "timestamp": 40}),
+            json.dumps({"type": "sentiment", "element": "bogus.sentiment", "sentiment": "meh", "timestamp": 50}),
+            json.dumps({"type": "rank", "element": "bogus.range", "stars": 9, "timestamp": 60}),
             "not json at all",
         ]) + "\n", encoding="utf-8")
         adopted, skipped = adopt_companion(project, companion)
-        if adopted != 2 or skipped != 2:
+        if adopted != 4 or skipped != 4:
             raise HarnessError(f"self-test: adopt miscounted ({adopted} adopted, {skipped} skipped)")
         validate_harness(project)
         adopted_ledger = {e["element"]: e for e in json.loads((output / "decisions.json").read_text(encoding="utf-8"))["elements"]}
@@ -428,6 +499,28 @@ def self_test() -> None:
             raise HarnessError("self-test: adopt lost the star rank")
         if "user: form stays white" not in adopted_ledger["form.paper.white"]["evidence"]:
             raise HarnessError("self-test: adopt dropped the evidence excerpt")
+        # sentiment maps deterministically to verdict + default rank
+        for element, name in (("cover.ring.kicker", "like"), ("cover.background.black", "dislike")):
+            entry = adopted_ledger[element]
+            if (entry["state"], entry["stars"]) != SENTIMENTS[name]:
+                raise HarnessError(f"self-test: {name} did not map to its verdict/rank")
+
+        # Adopting the same ledger twice must be a no-op on content.
+        first = (output / "decisions.json").read_text(encoding="utf-8")
+        adopt_companion(project, companion)
+        if (output / "decisions.json").read_text(encoding="utf-8") != first:
+            raise HarnessError("self-test: adopt is not idempotent")
+
+        # Controls are generated from the ledger and are byte-stable.
+        markup = render_feedback_controls(load_decisions(output))
+        if markup != render_feedback_controls(load_decisions(output)):
+            raise HarnessError("self-test: controls are not deterministic")
+        for required in ('data-element="form.paper.white"', 'data-rank="5"',
+                         'data-sentiment="like"', 'data-sentiment="dislike"'):
+            if required not in markup:
+                raise HarnessError(f"self-test: controls omitted {required}")
+        if 'data-element="cover.background.black"' in markup:
+            raise HarnessError("self-test: controls offered a rejected element")
 
         # validate must refuse a decision-less harness rather than green-light it.
         (output / "decisions.json").unlink()
@@ -459,6 +552,9 @@ def parser() -> argparse.ArgumentParser:
     adopt.add_argument("--project-root", required=True, type=Path)
     adopt.add_argument("--companion-ledger", required=True, type=Path,
                        help="path to the companion's durable decisions.jsonl")
+    controls = subcommands.add_parser("controls", help="emit star + like/dislike controls from the ledger")
+    controls.add_argument("--project-root", required=True, type=Path)
+    controls.add_argument("--out", type=Path, help="write here instead of stdout")
     subcommands.add_parser("self-test")
     return command
 
@@ -481,8 +577,16 @@ def main() -> int:
                   f"{len(live)} element(s) standing, state={decisions['state']}.")
         elif args.command == "adopt":
             adopted, skipped = adopt_companion(args.project_root, args.companion_ledger)
-            print(f"Adopted {adopted} star-ranked decision(s); skipped {skipped} "
-                  f"event(s) with no design-element id.")
+            print(f"Adopted {adopted} ranked decision(s); skipped {skipped} "
+                  f"interaction(s) with no design-element id or usable signal.")
+        elif args.command == "controls":
+            output = args.project_root.resolve(strict=True) / "spec" / "design-harness"
+            markup = render_feedback_controls(load_decisions(output))
+            if args.out:
+                args.out.write_text(markup, encoding="utf-8")
+                print(f"Wrote feedback controls to {args.out}")
+            else:
+                print(markup, end="")
         else:
             self_test()
             print("Self-test passed.")

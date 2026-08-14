@@ -31,7 +31,7 @@ scripts/bootstrap_harness.py decide --project-root . \
   --supersedes cover.layout.two-column
 ```
 
-Capture feedback as it arrives, not at the end. Star ranks set in the companion are adopted, never retyped:
+Capture feedback as it arrives, not at the end. Feedback set in a companion is adopted, never retyped:
 
 ```bash
 scripts/bootstrap_harness.py adopt --project-root . \
@@ -39,6 +39,20 @@ scripts/bootstrap_harness.py adopt --project-root . \
 ```
 
 Interactions with no design-element id are skipped and reported — ask the user for the id rather than inventing one. Conversation history is not a record: an unrecorded decision is lost at the next session boundary, and losing one is a defect, not an inconvenience.
+
+## Companion feedback
+
+The harness ships no companion and requires no particular one. Any browser surface works if it meets [companion-contract.md](references/companion-contract.md): a durable ledger outside the session directory, design-element ids on every control, and two signals per element — a 1–5 star rank and a like/dislike.
+
+**Stars carry strength, sentiment carries direction.** `stars: n` approves at rank *n*; `like` approves, `dislike` rejects, each with a fixed default rank when no star is given. Replay is ordered by timestamp, so `adopt` is idempotent.
+
+Never hand-author element ids into a screen — that is how ids drift from the ledger. Generate them:
+
+```bash
+scripts/bootstrap_harness.py controls --project-root . --out controls.html
+```
+
+The markup covers only elements in standing and is byte-stable for a given ledger. If the companion cannot meet the contract, say so and use `decide` in the terminal instead of remembering what was clicked.
 
 ## Start
 
