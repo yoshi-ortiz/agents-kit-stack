@@ -1,11 +1,44 @@
 ---
 name: aesthetic
-description: Create or extend a portable, evidence-backed design harness for a new project. Use when a project needs configurable read-only inspiration intake, deterministic image/PDF or web evidence, bounded AI design loops, proactive art-detail sourcing, iterative critique, or frontend, product, physical-space, copywriting, motion, composition, and mockup-layering workflows.
+description: Bootstrap a deterministic, evidence-backed design harness for a design project, then serve as its resumable context. Use when a project needs read-only inspiration intake, hashed image/PDF evidence, bounded design loops, a star-ranked decision ledger that survives session boundaries, companion feedback adoption, or art-direction, frontend, product, physical-space, copywriting, motion, composition and mockup-layering workflows. Also use when resuming design work on a project that already has `spec/design-harness/`, so prior decisions are honoured rather than rebuilt.
 ---
 
 # Aesthetic
 
 Create the least-agentic workflow that can move a project from evidence to an approved design output without inventing context.
+
+This skill has two modes. Establish which applies before doing anything else:
+
+- **Not yet bootstrapped** (no `spec/design-harness/`) — generate the harness. Follow *Start*.
+- **Already bootstrapped** — the harness *is* your context. Do not re-derive it and do not re-bootstrap over it. Follow *Resuming an existing harness*.
+
+## Resuming an existing harness
+
+```bash
+python3 scripts/bootstrap_harness.py validate --project-root /absolute/project
+```
+
+Then read `spec/design-harness/DECISIONS.md` **before proposing anything**.
+
+Every element under Standing is binding. Each carries a 1–5 star rank set by the user: higher rank wins when two elements conflict, and a tie is a question for the user, not a judgement call for you. Agent inference is recorded at one star and never outranks a user decision.
+
+Work in small iterations. Name the design elements the iteration touches, change only those, carry the rest through untouched. Rebuilding a surface from scratch silently drops every element that surface carried — if a change would drop one, stop and record the supersede first:
+
+```bash
+scripts/bootstrap_harness.py decide --project-root . \
+  --element cover.layout.single-column --verdict approved --stars 4 \
+  --evidence "user: 'drop the second column'" \
+  --supersedes cover.layout.two-column
+```
+
+Capture feedback as it arrives, not at the end. Star ranks set in the companion are adopted, never retyped:
+
+```bash
+scripts/bootstrap_harness.py adopt --project-root . \
+  --companion-ledger .superpowers/brainstorm/decisions.jsonl
+```
+
+Interactions with no design-element id are skipped and reported — ask the user for the id rather than inventing one. Conversation history is not a record: an unrecorded decision is lost at the next session boundary, and losing one is a defect, not an inconvenience.
 
 ## Start
 
@@ -70,10 +103,12 @@ Use short shots. Start with four external tool calls, two URLs, four new visual 
 
 - Treat every user response as critique evidence, even when vague or poorly framed.
 - Preserve exact positive and negative excerpts, then translate them into testable constraints.
+- Write every accepted excerpt to the ledger with `decide` in the same turn you receive it. An excerpt that stays in the conversation is not retained.
+- Ask for a star rank per design element alongside approval; rank is the ordering signal when elements conflict.
 - Mixed or negative critique requests revision. Positive-only critique may approve.
 - Always ask for approval after a proposal.
 - Automated checks cannot manufacture user approval.
-- Promotion requires current lineage, unchanged source hashes, required capability evidence, and passing domain-specific conformance.
+- Promotion requires current lineage, unchanged source hashes, a ledger that validates, required capability evidence, and passing domain-specific conformance.
 
 ## Validation
 
