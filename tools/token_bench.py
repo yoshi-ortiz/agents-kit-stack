@@ -23,35 +23,18 @@ English prose if a token figure is wanted.
 from __future__ import annotations
 
 import argparse
-import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] /
+                       "build-context-token-vectors/scripts"))
+from skill_corpus import read_skill
 
 # A stub carries a name and a pointer and no doctrine. The threshold is read
 # off the reference implementation rather than chosen: ask-matt's own stubs
 # are `grill-with-docs` at 245 bytes and `implement` at 433, and its smallest
 # real skill is `handoff` at 879. Anything under this is pointing, not saying.
 STUB_MAX_BYTES = 600
-
-
-def frontmatter_description(text: str) -> str:
-    """The declared `description:` value.
-
-    Handles the quoted one-liner and the unquoted run-on both, because the
-    installed corpus contains both and undercounting the multi-line form is
-    how a survey concludes the tax is smaller than it is.
-    """
-    block = re.match(r"\s*---\s*\n(.*?)\n---", text, re.S)
-    if not block:
-        return ""
-    found = re.search(r"^description:\s*(.*?)(?=^[a-zA-Z_-]+:|\Z)",
-                      block.group(1), re.S | re.M)
-    return found.group(1).strip().strip('"') if found else ""
-
-
-def model_invoked(text: str) -> bool:
-    block = re.match(r"\s*---\s*\n(.*?)\n---", text, re.S)
-    return not (block and re.search(
-        r"^disable-model-invocation:\s*true\s*$", block.group(1), re.M))
 
 
 def measure(root: Path, names: list[str]) -> list[dict]:
@@ -62,13 +45,12 @@ def measure(root: Path, names: list[str]) -> list[dict]:
             rows.append({"name": name, "missing": True,
                          "always": 0, "path": 0, "stub": False})
             continue
-        text = path.read_text(encoding="utf-8", errors="replace")
-        total = len(text.encode("utf-8"))
-        always = (len(frontmatter_description(text).encode("utf-8"))
-                  if model_invoked(text) else 0)
+        skill = read_skill(path)
+        total = skill.file_bytes
+        always = len(skill.description.encode("utf-8")) if skill.model_invoked else 0
         rows.append({"name": name, "missing": False, "always": always,
                      "path": total, "stub": total <= STUB_MAX_BYTES,
-                     "model_invoked": model_invoked(text)})
+                     "model_invoked": skill.model_invoked})
     return rows
 
 

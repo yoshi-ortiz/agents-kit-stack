@@ -26,7 +26,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import re
 import webbrowser
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -36,6 +35,7 @@ from typing import Callable
 import numpy as np
 from evoc import EVoC
 from model2vec import StaticModel
+from skill_corpus import read_skills
 
 TEMPLATE = Path(__file__).resolve().parent / "dashboard.html"
 
@@ -87,27 +87,10 @@ class PreparedCorpus:
     k: int
     names: list[str]
     texts: list[str]
+    body_bytes: list[int]
     vectors: np.ndarray
     coords: np.ndarray
     similarity: np.ndarray
-
-
-def body(text: str) -> str:
-    """Frontmatter is metadata; doctrine is what a peer is judged on."""
-    return re.sub(r"^---\n.*?\n---\n", "", text, count=1, flags=re.S).strip()
-
-
-def load(root: Path) -> tuple[list[str], list[str]]:
-    names, texts = [], []
-    for path in sorted(root.glob("*/SKILL.md")):
-        try:
-            text = body(path.read_text(encoding="utf-8", errors="replace"))
-        except OSError:
-            continue
-        if text:
-            names.append(path.parent.name)
-            texts.append(text)
-    return names, texts
 
 
 def embed(texts: list[str], model_name: str) -> np.ndarray:
@@ -143,15 +126,18 @@ def layers(model: EVoC, fallback: np.ndarray) -> list[list[int]]:
 
 
 def prepare(root: Path, model_name: str, k: int) -> PreparedCorpus:
-    names, texts = load(root)
+    skills = [skill for skill in read_skills(root) if skill.body]
+    names = [skill.directory for skill in skills]
+    texts = [skill.body for skill in skills]
+    body_bytes = [skill.body_bytes for skill in skills]
     if not names:
         raise SystemExit(f"no SKILL.md under {root}")
     vectors = embed(texts, model_name)
     coords = project(vectors)
     similarity = vectors @ vectors.T
     np.fill_diagonal(similarity, -1.0)
-    return PreparedCorpus(root, model_name, k, names, texts, vectors, coords,
-                          similarity)
+    return PreparedCorpus(root, model_name, k, names, texts, body_bytes,
+                          vectors, coords, similarity)
 
 
 def analyze(corpus: PreparedCorpus, params: dict) -> dict:
@@ -174,7 +160,7 @@ def analyze(corpus: PreparedCorpus, params: dict) -> dict:
             "strength": round(float(strength[i]), 3),
             "x": round(float(corpus.coords[i][0]), 4),
             "y": round(float(corpus.coords[i][1]), 4),
-            "bytes": len(texts[i]),
+            "bytes": corpus.body_bytes[i],
             "peers": [{"name": names[j],
                        "sim": round(float(corpus.similarity[i][j]), 3),
                        "local": names[j] in LOCAL} for j in order],
