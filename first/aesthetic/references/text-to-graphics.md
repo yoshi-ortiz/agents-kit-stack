@@ -29,20 +29,23 @@ python3 <skill>/scripts/text_to_graphics.py --project-root . status
 Exit 0 means done, exit 2 means the named action is outstanding. Nothing else in
 this file tells you what order to work in, because the order is computed.
 
-| Action | Do |
+<!-- detmd {"version":1,"id":"graphics-flow-actions","direction":"source-to-markdown","sources":{"main":{"kind":"python-export","path":"first/aesthetic/scripts/graphics_flow.py","function":"detmd_flow_rows"}},"from":"main","schema":[{"name":"action","type":"id"},{"name":"do","type":"string"}],"key":["action"],"order_by":[],"operations":[],"renderer":"pipe"} -->
+| action | do |
 | --- | --- |
-| `edit-scene-spec` | Fix what the reason names. The scene is the truth everything else derives from. |
-| `add-corpus` | Put reference material under the manifest's corpus root. There is nothing to observe yet |
-| `observe` | `text_to_graphics.py observe` |
-| `seed-tags` | `text_to_graphics.py seed-tags`, then tag by hand for anything the manifest hints miss |
-| `refine` | Edit or reuse every named near-hit attempt. Retag it when resolved; do not launch a fresh shot |
-| `compile` | `text_to_graphics.py compile` |
-| `export-avge` | `text_to_graphics.py export-avge` |
-| `preflight` | Probe the adapter yourself, then record what you saw (below) |
-| `run-avge` | Execute every call in `slices/avge-calls.json` through the AVGE Engine MCP |
-| `build` | `text_to_graphics.py build`, the in-repo renderer, when no adapter is available |
-| `repair-output` | The gate rejected the drawing. Fix the cause the reason names, then redraw |
-| `done` | Every gate passes and no artifact is stale |
+| edit-scene-spec | Fix what the reason names. The scene is the truth everything else derives from. |
+| add-corpus | Put reference material under the manifest's corpus root. There is nothing to observe yet |
+| observe | `text_to_graphics.py observe` |
+| seed-tags | `text_to_graphics.py seed-tags`, then tag by hand for anything the manifest hints miss |
+| refine | Edit or reuse every named near-hit attempt. Retag it when resolved; do not launch a fresh shot |
+| compile | `text_to_graphics.py compile` |
+| export-avge | `text_to_graphics.py export-avge` |
+| preflight | Probe the adapter yourself, then record what you saw (below) |
+| run-avge | Execute every call in `slices/avge-calls.json` through the AVGE Engine MCP |
+| build | `text_to_graphics.py build`, the in-repo renderer, when no adapter is available |
+| repair-output | The gate rejected the drawing. Fix the cause the reason names, then redraw |
+| apply-correction | Apply the named user correction before spending another Shot |
+| verify-delivery | Render the current artifact at the required viewport and retain its proof |
+| done | Every gate passes and no artifact is stale |
 
 An output is stale when no recorded attempt drew it from the current scene hash.
 Prompt slices are stale when the scene, corpus, corpus roles, or tags change.

@@ -43,6 +43,13 @@ current official documentation and distil it into `docs/knowledge/` with
 **/knowledge**, which owns that format. Check the version you distilled against
 the dependency manifest before writing a line against it.
 
+The escalation order is part of the contract: exhaust stack research and
+stable, enterprise-compatible existing solutions first; invent the wheel only
+as a last, explicitly justified luxury. For module construction, compose the
+architecture and establish core style/contracts before building atomically
+upward. This is Eat your own food: the repository must exercise the same
+contracts it asks installed consumers to follow.
+
 ## 4. Source before you write
 
 You are bad at boilerplate, raw SVG, and blind layout, and the ecosystem is
@@ -58,6 +65,35 @@ Isolate domains, encapsulate dependencies, keep business logic out of the view
 layer. When an approach hits a dependency conflict, **pivot on the approach,
 never on the modularity**. A hack that forces a quick fix through a boundary
 costs more than the pivot it avoided.
+
+### Mechanize exact state
+
+Bare LLMs are not authorities for exact arithmetic, structured serialization,
+facts joined across long files, or values absent from a source. Let the agent
+choose semantic intent; make a small deterministic program parse, join,
+calculate, validate, and render exact state. A plausible value is not data.
+
+Code fences and tables are prose unless an adjacent `detmd` JSON declaration
+opts them into the **deterMDinistic** contract. Every deterministic mirror names
+its authority direction, stable id, source, schema, and renderer. Codebase state
+is the default authority; generated Markdown is a reviewable projection. A
+Markdown-authoritative executable cell must declare that exceptional direction
+and use an explicit runner.
+
+Derived values are never typed in by an agent. Generate sums, counts, byte
+conversions, joins, ordering, and digests procedurally. Represent many-to-many
+state as link rows with stable ids, not a delimiter hidden inside one canonical
+cell. Normalize once to JSON-compatible typed rows, then render Markdown, TSV,
+or JSON from that state.
+
+Checking is read-only. Drift, malformed declarations, duplicate ids, broken
+references, unavailable sources, and exporter failures stop the gate. Rendering
+is a separate explicit command that changes only the declared region; review
+its diff like production code.
+
+Run the bundled gate with `python3 <genesis>/detmd.py check .`; repair explicitly
+with `render`. For reuse, `python3 -m pip install <genesis>` installs the same
+implementation as the `detmd` command and importable `detmd` module.
 
 ## 6. Prove it, then say it
 

@@ -12,7 +12,7 @@ names = [name for name, _ in check.gates(Path("/tmp/unused"))]
 # Every documented gate is on the board. The whole point of the file is that
 # the two lists it replaces each missed half the other.
 for expected in ("contracts-declared", "contracts-budget", "unit tests",
-                 "harness self-test", "index gate", "loanwords",
+                 "harness self-test", "deterMDinistic", "index gate", "loanwords",
                  "publish main", "publish alpha"):
     assert expected in names, f"{expected} is not a gate"
 

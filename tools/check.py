@@ -63,6 +63,7 @@ def gates(tree: Path) -> list[tuple[str, list[str]]]:
         ("runner tests", [py, "tools/test_check.py"]),
         ("token benchmark tests", [py, "tools/test_token_bench.py"]),
         ("trace preview tests", [py, "tools/test_trace_preview.py"]),
+        ("deterMDinistic", [py, "first/genesis/test_detmd.py"]),
         ("publish main", [py, "tools/publish.py", "--out", str(tree / "main"), "--check"]),
         ("publish alpha", [py, "tools/publish.py", "--out", str(tree / "alpha"),
                            "--channel", "alpha", "--check"]),
@@ -70,7 +71,7 @@ def gates(tree: Path) -> list[tuple[str, list[str]]]:
         # The only gate that asserts on what a designer sees rather than on an
         # exit code. `--project-root` is the runner's tempdir because cook
         # refuses one inside the repository, and it is outside by construction.
-        ("Cook Food Product round", [py, "cook/cook.py", "run", "--project-root", str(tree / "cook")]),
+        ("Cook Eat your own food round", [py, "cook/cook.py", "run", "--project-root", str(tree / "cook")]),
         *((f"{path.parent.name}/{path.name} parses", [node, "--check", str(path.relative_to(ROOT))])
           for path in sorted(ROOT.glob("first/aesthetic/*/*.js")) if node),
     ]

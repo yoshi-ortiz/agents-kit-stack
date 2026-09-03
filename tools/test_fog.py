@@ -13,6 +13,9 @@ def test() -> None:
     assert is_fog("first/genesis/SKILL.md")                # alpha skill on main
     assert is_fog("first/genesis/references/architecture.md")
     assert not is_fog("first/genesis/SKILL.md", "alpha")
+    assert not is_fog("first/genesis/detmd.py", "alpha")
+    assert not is_fog("first/genesis/pyproject.toml", "alpha")
+    assert is_fog("first/genesis/test_detmd.py", "alpha")
     assert is_fog("first/aesthetic/AGENTS.md", "alpha")    # fog is still fog on alpha
     assert not is_fog("kit/spanish/ora/SKILL.md")          # stable skills unaffected
     assert not is_fog("first/aesthetic/SKILL.md")          # graduated off alpha, R-59

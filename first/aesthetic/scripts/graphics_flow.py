@@ -117,6 +117,32 @@ FLOW = (
                 "see the work; no live " + ", ".join(st["proofsMissing"])),
 )
 
+ACTION_GUIDE = {
+    "edit-scene-spec": "Fix what the reason names. The scene is the truth everything else derives from.",
+    "add-corpus": "Put reference material under the manifest's corpus root. There is nothing to observe yet",
+    "observe": "`text_to_graphics.py observe`",
+    "seed-tags": "`text_to_graphics.py seed-tags`, then tag by hand for anything the manifest hints miss",
+    "refine": "Edit or reuse every named near-hit attempt. Retag it when resolved; do not launch a fresh shot",
+    "compile": "`text_to_graphics.py compile`",
+    "export-avge": "`text_to_graphics.py export-avge`",
+    "preflight": "Probe the adapter yourself, then record what you saw (below)",
+    "run-avge": "Execute every call in `slices/avge-calls.json` through the AVGE Engine MCP",
+    "build": "`text_to_graphics.py build`, the in-repo renderer, when no adapter is available",
+    "repair-output": "The gate rejected the drawing. Fix the cause the reason names, then redraw",
+    "apply-correction": "Apply the named user correction before spending another Shot",
+    "verify-delivery": "Render the current artifact at the required viewport and retain its proof",
+    "done": "Every gate passes and no artifact is stale",
+}
+
+
+def detmd_flow_rows() -> list[dict[str, str]]:
+    """The documented action guide in the exact order the runtime can emit it."""
+    actions = list(dict.fromkeys(action for action, _, _ in FLOW)) + ["done"]
+    missing = [action for action in actions if action not in ACTION_GUIDE]
+    if missing:
+        raise ValueError("FLOW action(s) lack guidance: " + ", ".join(missing))
+    return [{"action": action, "do": ACTION_GUIDE[action]} for action in actions]
+
 
 def next_action(state: Mapping[str, Any]) -> dict[str, str]:
     """The one thing to do next, and why. The whole prompt flow is this table."""

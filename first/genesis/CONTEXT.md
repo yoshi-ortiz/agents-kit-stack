@@ -1,8 +1,8 @@
 ---
 purpose: skill entry point -- the spec-driven build discipline and the file topology it keeps state in
-admits: SKILL.md, and directories that carry their own contract
+admits: SKILL.md; detmd.py and pyproject.toml, the bundled deterministic-mirror package; directories that carry their own contract
 refuses: doctrine and worked contracts, which belong in references/; any state about a real project, which belongs in that project
-max_file_bytes: 7250
+max_file_bytes: 35000
 ---
 
 # Genesis

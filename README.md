@@ -382,7 +382,7 @@ before it touches code, keeps a live list of what is done and what is stuck, and
 | --- | --- |
 | **Package** | [first/genesis/](first/genesis/) · entry [first/genesis/SKILL.md](first/genesis/SKILL.md) |
 | **Invoke** | You only. Say `genesis`. |
-| **Needs** | Nothing. It writes plain Markdown into your project. |
+| **Needs** | Python 3.10+. The skill and bundled `detmd` runtime have no runtime dependencies. |
 | **Runs on** | **Your** project folder, never this repo |
 | **Channel** | `alpha` |
 
@@ -410,6 +410,12 @@ immutable term per concept, `docs/knowledge/` owned by [/knowledge](#-knowledge)
 **Doctrine**, loaded only when a step names it:
 [references/index.md](first/genesis/references/index.md) covers the scope interview
 and modular architecture, the sourcing contract, and what counts as evidence.
+
+**Deterministic mirrors.** Run the bundled copy directly with
+`python3 first/genesis/detmd.py check .`, or install that same one-module package
+with `python3 -m pip install ./first/genesis`. The install exposes both the
+`detmd` command and `import detmd`; use `render` only when you intend to repair
+declared Markdown regions.
 
 **Promotion gate.** The doctrine is written and untested.
 
