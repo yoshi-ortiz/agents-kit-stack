@@ -11,6 +11,31 @@ ROOT = Path(__file__).parents[1]
 
 
 class SkillWorkflowTest(unittest.TestCase):
+    def test_repo_development_exits_before_design_inference(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        self.assertLess(skill.index("Repo-Dev Context"),
+                        skill.index("assistant_app.py"))
+        self.assertIn("do not open the companion", skill.lower())
+        self.assertIn("AGENTS.md", skill)
+
+    def test_development_prompt_routes_the_two_products_separately(self) -> None:
+        prompt = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        shot = (ROOT / "docs/development/design-shot-inference.md").read_text(
+            encoding="utf-8")
+        ranking = (ROOT / "docs/development/ranking-artifact.md").read_text(
+            encoding="utf-8")
+
+        self.assertIn("git branch --show-current", prompt)
+        self.assertIn("tools/repo_context.py --json module aesthetic", prompt)
+        self.assertIn("design-shot-inference.md", prompt)
+        self.assertIn("ranking-artifact.md", prompt)
+        self.assertIn("direction_context.py", shot)
+        self.assertIn("graphics_generation.py", shot)
+        self.assertNotIn("harness_article.py", shot)
+        self.assertIn("harness_article.py", ranking)
+        self.assertIn("deliver.py", ranking)
+        self.assertNotIn("direction_context.py", ranking)
+
     def test_skill_routes_inference_back_to_the_established_article(self) -> None:
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         positions = [skill.index(term) for term in (

@@ -120,6 +120,16 @@ seams with “yes, everything is approved.” No result acceptance is inferred.
 Usage telemetry remains unknown where callers do not supply it; no token savings
 are claimed.
 
+On 2026-09-12, R-50 gained an explicit Repo-Dev entry for Aesthetic source work.
+The root prompt routes changes under `first/aesthetic/` to its development prompt
+before `SKILL.md`. That prompt checks the branch and module record, then selects
+one of two dev-only owner maps, Design Shot inference or the Aesthetic ranking
+artifact. Each map names its source files, callers, exclusions, and focused proof.
+`SKILL.md` now exits source changes before companion startup and is 6,981 bytes,
+down from 7,134. The Aesthetic suite passes 590 tests. The full board passes 31
+of 31 when its local Cook server may bind; the sandboxed run passes 30 of 31 and
+fails only at that bind.
+
 Entry baseline: [first slice evidence](.audit/proofs/next-s1-contract-20260905.md).
 Unrelated changes in Knowledge and Kit belong to other work and are preserved.
 

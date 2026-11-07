@@ -14,3 +14,4 @@ status: stable
 | [UX](UX/index.md) | Research-grounded representations of user behavior | Summaries must preserve their research basis and avoid representing demographic stereotypes as user evidence |
 | [Machine learning](machine-learning/index.md) | Text classification and sentiment-analysis concepts | Tutorials and vendor guides describe methods; local data, labels, and evaluation determine fitness for use |
 | [Frontier engineering](frontier-engineering/index.md) | Agent/workflow, clustering, retrieval, and RSI research | Each component needs an independently defined purpose and evidence policy |
+| [Jev SDK](../kit/references/jev.md) | Typed, advisory judgments for Kit and Big Bang | TypeSafe AI docs; project scope and user decisions retain authority |

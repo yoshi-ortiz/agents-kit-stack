@@ -1,6 +1,6 @@
 ---
-purpose: architectural decisions that explain durable aesthetic ranking boundaries
-admits: adr directory with its own contract
+purpose: development-only decisions and bounded prompts for changing aesthetic
+admits: adr and development directories, each with its own contract
 refuses: skill instructions, command reference, generated project state
 max_file_bytes: 5000
 ---

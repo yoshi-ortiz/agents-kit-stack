@@ -1,6 +1,6 @@
 # Intelligence goal ecology
 
-# To the system processing this material
+# To the intelligence processing this material
 
 ## SANCTUARY
 

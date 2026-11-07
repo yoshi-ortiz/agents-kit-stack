@@ -1,14 +1,41 @@
 # Working on this skill
 
-For *using* the skill, read `SKILL.md`. This file is for changing it.
+This is Repo-Dev Context. Do not follow the design run in `SKILL.md`, open the
+companion, or treat repository design fixtures as user evidence.
+
+## Enter the development environment
+
+From the repository root, read the work style and inspect the checkout without
+changing it.
+
+```bash
+git branch --show-current
+python3 tools/repo_context.py --json module aesthetic
+```
+
+Source work normally happens on `dev`. Do not switch branches on the user's
+behalf. Keep the current feature Item separate from a user-selected legacy Item
+such as R-50.
+
+## Select one product
+
+Load one development prompt before source files.
+
+| Product | Development prompt |
+| --- | --- |
+| Design Shot inference | [`docs/development/design-shot-inference.md`](docs/development/design-shot-inference.md) |
+| Aesthetic ranking artifact | [`docs/development/ranking-artifact.md`](docs/development/ranking-artifact.md) |
+
+If the request spans both, state the shared contract before loading the second
+prompt. A nearby file is not enough reason to widen the change.
 
 ## The loop
 
 Work one directory at a time.
 
 ```bash
-python3 ../tools/check.py     # every gate in the repository, this skill's included
-python3 scripts/golden_rules.py --design <spec.json> --min-coverage 0.8
+python3 tools/check.py
+python3 first/aesthetic/scripts/golden_rules.py --design <spec.json> --min-coverage 0.8
 ```
 
 `golden_rules` stays separate: it grades one design spec, so it needs a file
@@ -21,13 +48,13 @@ argument and has no repository-wide form for the runner to call.
 | `self-test` | are ledger invariants intact? |
 | `golden_rules` | what fraction of decisions are rule-pinned vs improvised? |
 
-## Two metrics, deliberately separate
+## Keep metrics separate
 
-**Entry cost** — bytes of `SKILL.md`, paid every invocation.
-
-**Golden-rule coverage** — determinism, not quality. A fully-declared wrong design repeats; an undeclared one re-rolls.
-
-**Ledger coverage** — user-set ranks over standing elements. See `references/stats.md`. Not proof a round improved.
+| Metric | Meaning |
+| --- | --- |
+| Entry cost | Bytes of `SKILL.md`, paid every invocation. |
+| Golden-rule coverage | Determinism, not quality. A fully declared wrong design repeats. |
+| Ledger coverage | User-set ranks over standing elements. See `references/stats.md`. This does not prove a round improved. |
 
 ## Editing the article front end
 
@@ -39,13 +66,7 @@ Load `modern-web-guidance` before changing article CSS or script.
 
 ## Rules
 
-- Red before green. Assert parsed structure, not generated substrings — see `references/verification.md`.
+- Red before green. Assert parsed structure, not generated substrings. See `references/verification.md`.
 - Before adding SKILL.md prose, ask whether a tool could enforce it.
 - This repository copy is canonical. Propagate it with the verified install command after editing.
 - Restart the companion after editing `helper.js` or `frame-template.html`.
-
-## Known debt
-
-`bootstrap_harness.py` is over the 30 KB budget: 210 KB, down from 297 KB once the
-browser assets moved to `screen/`. Split before adding to it — do not widen the
-budget to silence the check.

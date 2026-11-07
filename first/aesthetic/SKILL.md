@@ -1,10 +1,14 @@
 ---
 name: aesthetic
-description: Design and art direction that reads as intentional, not templated. Use to start, continue, or critique visual work. Grounds direction in design fundamentals, and folds in a multimodal corpus and user sentiment when they exist, producing ranked decisions and an editorial burndown.
+description: Start, continue, or critique visual work. Uses design fundamentals, a multimodal corpus, and user sentiment to produce ranked decisions and an editorial burndown.
 phase: first
 ---
 
 # Aesthetic ranking
+
+This file is Design-Inference Context. If the request changes this skill's
+source, contracts, tests, or companion, enter Repo-Dev Context instead. Stop
+here, read `AGENTS.md`, and do not open the companion or load design doctrine.
 
 `continue`, `critique`, `prototype`, and `observe` are context clues. A
 requested diagram, scene, or illustration routes to
@@ -26,15 +30,13 @@ With `scene-spec.json` or `graphics-manifest.json`, run:
 python3 <skill>/scripts/text_to_graphics.py --project-root . status
 ```
 
-Do exactly the returned action. This route outranks generic art-direction
-inference. Do not replace a passing graphic; reuse it from `shots/` first.
+Do the returned action. It outranks generic art-direction inference. Reuse a
+passing graphic from `shots/`.
 
 Choose chat language from the user's latest words and mirror their dialect in
 project-authored publishing copy. `project.json.language` translates companion
-controls; when it is set, every string you author into the screen -- round
-question, element titles, descriptions, status -- is written in that same
-language. One language per screen. An English `--asks` inside a Spanish
-companion is the mixing this rule exists to stop.
+controls. When set, write every screen string in that language. One language per
+screen.
 
 Keep the established article: hero, graph, TOC, four sections, progress chart. Never replace it with a kanban or second site.
 
@@ -59,7 +61,7 @@ python3 <skill>/scripts/editorial_workflow.py observe \
   --project-root . --source-root <absolute-reference-folder>
 ```
 
-Open items; metadata is not visual evidence. Without a folder, seed from a
+Open items. Metadata is not visual evidence. Without a folder, seed from a
 named profile and ask for references without blocking:
 
 ```bash
@@ -83,12 +85,11 @@ Read that context before doctrine. With ranked elements, read
 [sentiment-analysis.md](references/sentiment-analysis.md). Never collapse stars,
 thumbs, lifecycle, or missing feedback into one score.
 
-Classify corpus before inference. `reference+pursue` may source a new direction;
-`reference+avoid` is counterevidence; `attempt+refine` is a near-hit to edit or
-reuse before spending another shot; constraints carry scene truth; derivatives
-are audit evidence, never an original source. If `status` returns `refine`, do
-that first. Read [text-to-graphics.md](references/text-to-graphics.md) for the
-role/stance matrix and staleness rules.
+Classify corpus before inference. `reference+pursue` may source a direction;
+`reference+avoid` is counterevidence; `attempt+refine` is a near-hit to reuse or
+edit before another shot. Constraints carry scene truth. Derivatives are audit
+evidence, never original sources. If `status` returns `refine`, do that first.
+Read [text-to-graphics.md](references/text-to-graphics.md) for routing rules.
 
 ## Infer and rank art direction
 
