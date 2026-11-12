@@ -3,6 +3,8 @@
 
   packages.py                          verify: gate both scopes, install nothing
   packages.py kit-starter-pack         index the catalog and publish explicit-only plugins
+  packages.py bigbang [<domain>...]    set up this checkout: index if needed, domains (default core), `mise run stage0`
+                                       (or `mise install`), start every stdio MCP server once, then verify
   packages.py verify --strict-projection  also fail on nonzero Claude plugin token estimates
   packages.py prune [<plugin>...]      list unused @kit plugins; turn off only the ones named, in ~/.claude/settings.json
   packages.py portable                refresh shared skill commands from the published catalog
@@ -860,6 +862,50 @@ def domain(pack, names, dry):
     return 0
 
 
+def mcp_starts(spec, timeout=60):
+    """'' if the stdio server answers an MCP initialize, else the reason (last stderr line)."""
+    hello = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "kit", "version": "1"}}}) + "\n"
+    argv = [spec["command"], *spec.get("args", [])]
+    try:
+        p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                             env={**os.environ, **spec.get("env", {})})
+    except OSError as e:
+        return str(e)
+    try:
+        out, err = p.communicate(hello, timeout=timeout)
+    except subprocess.TimeoutExpired:  # still serving after stdin closed is fine only if it answered
+        p.kill()
+        out, err = p.communicate()
+    if '"id":1' in out.replace(" ", "") and '"result"' in out:
+        return ""
+    return (err.strip().splitlines() or ["no initialize reply"])[-1][:300]
+
+
+def bigbang(pack, names, dry):
+    """One command per checkout: catalog, domains, the project's stage 0, then proof that its MCP servers start."""
+    root = Scope(False).root
+    if not INDEX.exists():
+        main(["kit-starter-pack"] + (["--dry-run"] if dry else []))
+    domain(pack, names or ["core"], dry)
+    mise = next((root / n for n in ("mise.toml", ".mise.toml") if (root / n).is_file()), None)
+    if mise:
+        import tomllib
+        cmd = ["mise", "run", "stage0"] if "stage0" in tomllib.loads(mise.read_text()).get("tasks", {}) else ["mise", "install"]
+        print("$ " + shlex.join(cmd))
+        if not dry:
+            gate([] if shutil.which("mise") else ["mise not found; kit does not install runtimes"])
+            gate([f"{shlex.join(cmd)} failed"] if run(cmd, cwd=root).returncode else [])
+    servers = json.loads((root / ".mcp.json").read_text()).get("mcpServers", {}) if (root / ".mcp.json").exists() else {}
+    stdio = {n: s for n, s in servers.items() if s.get("command")}
+    if dry:
+        print(f"would start {len(stdio)} stdio MCP server(s): {', '.join(stdio) or 'none'}")
+        return 0
+    gate([f"MCP {n} does not start: {why}" for n, s in stdio.items() if (why := mcp_starts(s))])
+    print(f"ok: {len(stdio)} stdio MCP server(s) start: {', '.join(stdio) or 'none'}")
+    return verify(pack)
+
+
 def use(pack, tokens):
     """Print a catalog skill from the cache: it enters the context only now, when called."""
     gate([] if tokens else ["name a skill: packages.py use <skill>"])
@@ -914,6 +960,8 @@ def main(argv):
         return 0
     if verb == "domain":
         return domain(pack, rest, dry)
+    if verb == "bigbang":
+        return bigbang(pack, rest, dry)
     if argv == ["portable"]:
         if dry:
             print("would refresh shared skill commands and the Antigravity router")

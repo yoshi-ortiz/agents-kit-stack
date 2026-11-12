@@ -151,7 +151,7 @@ Added per project by `kit domain <domain>` when a domain lists `mcp:<name>`: Cla
 
 1. terraform docker run -i --rm hashicorp/terraform-mcp-server:1.4.1
 2. cloudflare https://mcp.cloudflare.com/mcp
-3. tree-sitter uvx mcp-server-tree-sitter==0.7.0
+3. tree-sitter uvx --with mcp<2 mcp-server-tree-sitter==0.7.0
 
 Not added yet, reference only: context7, [WebMCP](https://developer.chrome.com/docs/ai/webmcp?hl=es-419),
 [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp), playwright.

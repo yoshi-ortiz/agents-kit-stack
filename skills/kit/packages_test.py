@@ -37,6 +37,12 @@ class KitTest(unittest.TestCase):
         self.assertIn("disable-model-invocation: true", (self.h / "out/b/SKILL.md").read_text())
         self.assertIn("allow_implicit_invocation: false", (self.h / "out/b/agents/openai.yaml").read_text())
 
+    def test_bigbang_mcp_start_check(self):
+        ok = 'import sys,json; sys.stdin.readline(); print(json.dumps({"jsonrpc":"2.0","id":1,"result":{}}))'
+        self.assertEqual(K.mcp_starts({"command": sys.executable, "args": ["-c", ok]}), "")
+        bad = K.mcp_starts({"command": sys.executable, "args": ["-c", "raise SystemExit('No module named mcp.server.fastmcp')"]})
+        self.assertIn("fastmcp", bad)
+
     def test_unused_and_prune_keep_used_plugins(self):
         (self.h / "settings.json").write_text(json.dumps({"enabledPlugins": {
             "ponytail@kit": True, "tuist@kit": True, "pstack@kit": True, "other@x": True}}))
