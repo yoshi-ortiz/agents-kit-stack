@@ -37,6 +37,21 @@ class KitTest(unittest.TestCase):
         self.assertIn("disable-model-invocation: true", (self.h / "out/b/SKILL.md").read_text())
         self.assertIn("allow_implicit_invocation: false", (self.h / "out/b/agents/openai.yaml").read_text())
 
+    def test_model_visible_catalog_install_fails_verify(self):
+        store = self.h / ".agents/skills"
+        for name, head in (("vis", ""), ("ondemand", "disable-model-invocation: true\n")):
+            (store / name).mkdir(parents=True)
+            (store / name / "SKILL.md").write_text(f"---\n{head}name: {name}\ndescription: d\n---\n")
+        (self.h / ".agents/.skill-lock.json").write_text(json.dumps({"skills": {
+            "vis": {"source": "o/r"}, "ondemand": {"source": "o/r"}}}))
+        pack = mock.Mock(repo=lambda src: src == "o/r", owned=set())
+        with mock.patch.object(K.Scope, "folders", lambda self: []), mock.patch.object(K.Scope, "locked",
+                lambda self: json.loads(self.lock.read_text())["skills"]):
+            problems = K.Scope(True).drift(pack)
+        self.assertEqual([p for p in problems if "loads into every session" in p],
+                         ["global: vis loads into every session; it is already on demand from kit. "
+                          "Run: python3 packages.py remove vis -g"])
+
     def test_bigbang_mcp_start_check(self):
         ok = 'import sys,json; sys.stdin.readline(); print(json.dumps({"jsonrpc":"2.0","id":1,"result":{}}))'
         self.assertEqual(K.mcp_starts({"command": sys.executable, "args": ["-c", ok]}), "")

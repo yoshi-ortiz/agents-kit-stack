@@ -45,3 +45,11 @@ Pins drift into fiction. Three versions in `.mise.toml` (packer 1.14.4, tflint 0
 ---
 
 After indexing, `verify` hinted that the plugins it had just added were "never used": digital-samba, mindrally. Of course they're unused; they're a minute old. "Unused" needs an age.
+
+---
+
+Kit is supposed to be a directory to run skills on demand! Having them callable on agents but not loading them on window if never invoked.
+
+---
+
+**On demand** is the contract: callable everywhere, zero bytes in the window until invoked. A catalog skill installed model-visible in a project (`bootstrap`, `ffmpeg` in `.agents/skills`) breaks it twice: its description loads every session, and it duplicates the explicit-only copy kit already publishes. Verify now fails on that, and the fix is `remove`, not a stamp.

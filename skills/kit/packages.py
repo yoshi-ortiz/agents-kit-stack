@@ -396,6 +396,11 @@ class Scope:
                 problems.append(f"{self.name}: {name} comes from {entry.get('source')}, not from the catalog")
             if not (self.store / name / "SKILL.md").is_file():
                 problems.append(f"{self.name}: {name} is in the lock but not in {self.store}")
+            elif name not in SELF and not re.search(r"^disable-model-invocation:\s*true\s*$",
+                                                    (self.store / name / "SKILL.md").read_text(), re.MULTILINE):
+                # kit serves catalog skills on demand; a model-visible install loads its description into every window
+                problems.append(f"{self.name}: {name} loads into every session; it is already on demand from kit. "
+                                f"Run: python3 packages.py remove {name}{' -g' if self.is_global else ''}")
         for folder in self.folders():
             for p in sorted(folder.iterdir()):
                 if (p.name.startswith(".") or p.name in pack.owned or (p / ".kit-stub").is_file()
