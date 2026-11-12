@@ -4,6 +4,7 @@
   packages.py                          verify: gate both scopes, install nothing
   packages.py kit-starter-pack         index the catalog and publish explicit-only plugins
   packages.py verify --strict-projection  also fail on nonzero Claude plugin token estimates
+  packages.py prune [--dry-run]        disable enabled @kit plugins nobody has used, in ~/.claude/settings.json
   packages.py portable                refresh shared skill commands from the published catalog
   packages.py use <skill>...           print a catalog skill from the index, so it enters the context only when called
   packages.py tools                    deny PACK.md `# Tools` in ~/.claude/settings.json, so no session loads them
@@ -42,8 +43,9 @@ TIMEOUT = 600  # seconds per command
 SLASH = Path.home() / ".claude/skills"  # where the earlier layout wrote stubs
 MARKET = Path.home() / ".cache/kit/marketplace"
 MARKET_NAME = "kit"
-SELF = {"kit", "kit-starter-pack"}  # installed from this package's own repo, not from a catalog row
+SELF = {"kit", "kit-starter-pack", "kit-shot"}  # installed from this package's own repo, not from a catalog row
 SETTINGS = Path.home() / ".claude/settings.json"
+CLAUDE_STATE = Path.home() / ".claude.json"  # Claude Code's own usage counters (skillUsage, pluginUsage)
 TOOLS_OWNED = Path.home() / ".cache/kit/tools.json"  # deny rules kit added, so it never removes yours
 TOOL = re.compile(r"[\w.*-]+")
 
@@ -90,6 +92,7 @@ class Pack:
     def __init__(self, text):
         self.text, self.rows, self.domains, self.agents, problems = text, {}, {}, [], []
         self.owned, self.publisher, self.tools, self.mcp = set(), {}, [], {}
+        self.workflow = set()  # "publisher:skill" names an agent may load on its own (# Workflow)
         section = domain = ""
         for n, line in enumerate(text.splitlines(), 1):
             if line.startswith("# "):
@@ -115,6 +118,12 @@ class Pack:
                     problems.append(f"PACK.md:{n} is not `1. name https://url` or `1. name command args`")
                 else:
                     self.mcp[m.group(1)] = m.group(2)
+            elif section == "workflow" and re.match(r"^\s*\d+\.", line):
+                m = re.match(r"^\s*\d+\.\s+`?([a-z0-9-]+):([a-z0-9-]+)`?\s*$", line)
+                if not m:
+                    problems.append(f"PACK.md:{n} is not `1. publisher:skill`")
+                else:
+                    self.workflow.add(f"{m.group(1)}:{m.group(2)}")
             elif section in ("agents", "agent-owned", "tools", "domains") and re.match(r"^\s*\d+\.", line):
                 m = ITEM.match(line)
                 if not m:
@@ -509,13 +518,89 @@ def claude_projection():
     return problems
 
 
+def disabled_plugins():
+    return {k for k, v in read_settings().get("enabledPlugins", {}).items() if v is False and k.endswith("@" + MARKET_NAME)}
+
+
+def visible_listing():
+    """Description bytes of the skills an agent sees at startup: kit's own skills plus every # Workflow skill of an
+    enabled plugin. Explicit-only skills are not listed (disable-model-invocation), so they cost nothing here."""
+    off, total, names = disabled_plugins(), 0, []
+    roots = [(n, HOME / ".agents/skills" / n / "SKILL.md") for n in sorted(SELF)]
+    for skill in sorted(MARKET.glob("plugins/*/skills/*/SKILL.md")):
+        plugin = skill.parents[2].name
+        if f"{plugin}@{MARKET_NAME}" not in off:
+            roots.append((f"{plugin}:{skill.parent.name}", skill))
+    for name, path in roots:
+        if not path.is_file() or re.search(r"^disable-model-invocation:\s*true", path.read_text(errors="ignore"), re.MULTILINE):
+            continue
+        desc = frontmatter(path)[1] or ""
+        total += len(name.encode()) + len(desc.encode())
+        names.append(name)
+    return names, total
+
+
+def source_drift():
+    """Kit edits itself (`kit add` writes PACK.md). When it runs from a copy, or its source has uncommitted changes,
+    those edits never reach git: the 2026-11-12 incident lost a PACK.md row and a whole packages.py that way."""
+    here = Path(__file__).resolve().parent
+    top = run(["git", "-C", str(here), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    if top.returncode:
+        return [f"kit runs from a copy at {here}, not a git checkout. Link it: "
+                f"ln -sfn <cyber-skills>/skills/kit {Path(__file__).parent}"]
+    dirty = run(["git", "-C", str(here), "status", "--porcelain", "--", str(here)], capture_output=True, text=True).stdout
+    return [f"uncommitted kit change: {line[3:]}. Commit it on a dev.kit.* branch" for line in dirty.splitlines()]
+
+
+def usage():
+    try:
+        state = json.loads(CLAUDE_STATE.read_text())
+    except (FileNotFoundError, ValueError):
+        return None
+    return state.get("pluginUsage", {}), state.get("skillUsage", {})
+
+
+def unused_plugins():
+    """Enabled @kit plugins with no recorded use: zero plugin dispatches and no skill of theirs ever called."""
+    counts = usage()
+    if counts is None:
+        return []
+    plugins, skills = counts
+    enabled = {k for k, v in read_settings().get("enabledPlugins", {}).items() if v is True and k.endswith("@" + MARKET_NAME)}
+    return sorted(k for k in enabled
+                  if not plugins.get(k, {}).get("usageCount") and not any(s.startswith(k.split("@")[0] + ":") for s in skills))
+
+
+def prune(dry):
+    """Turn off unused @kit plugins in ~/.claude/settings.json. Undo: set them back to true, or use /plugin."""
+    names = unused_plugins()
+    print(f"prune: {len(names)} unused plugin(s): {', '.join(names) or 'none'}")
+    if dry or not names:
+        return 0
+    settings = read_settings()
+    CACHE.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(SETTINGS, CACHE / f"settings-{time.strftime('%Y%m%d-%H%M%S')}.json")
+    for name in names:
+        settings.setdefault("enabledPlugins", {})[name] = False
+    SETTINGS.write_text(json.dumps(settings, indent=2) + "\n")
+    print("ok: turned off; kit-starter-pack keeps them off")
+    return 0
+
+
 def verify(pack, strict_projection=False):
     problems = [p for s in scopes() for p in s.drift(pack) + s.stamps(pack, False)] + twice()
     budget_problems, count, listing = budget(pack)
-    gate(problems + budget_problems + (tool_drift(pack) if INDEX.exists() else []))
+    shown, visible = visible_listing()
+    if visible > MAX_LISTING_BYTES:
+        problems.append(f"{visible} description bytes of workflow skills in every session, over the {MAX_LISTING_BYTES} cap")
+    gate(problems + budget_problems + source_drift() + (tool_drift(pack) if INDEX.exists() else []))
     if strict_projection:
         gate(claude_projection(), "Plugin projections are estimates. Measure startup context separately.")
     print(f"ok: skills CLI locks contain {count} skills and {listing} description bytes")
+    print(f"ok: agents see {len(shown)} skills at startup ({visible} description bytes): {', '.join(shown)}")
+    idle = unused_plugins()
+    if idle:
+        print(f"hint: {len(idle)} enabled plugin(s) never used: {', '.join(idle)}. Turn them off: python3 packages.py prune")
     if not INDEX.exists():
         print("first run: the catalog is not indexed. Index every skill, loading none: "
               "python3 packages.py kit-starter-pack")
@@ -603,25 +688,26 @@ def slug(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
-def explicit_policy(path):
+def explicit_policy(path, implicit=False):
+    flag = "true" if implicit else "false"
     yaml = path.read_text() if path.exists() else ""
     block = re.search(r"^policy:[ \t]*(?:#[^\n]*)?\n(?:[ \t]+[^\n]*\n?)*", yaml, re.MULTILINE)
     if block:
         text = block[0].rstrip("\n")
         key = r"^([ \t]+)allow_implicit_invocation:.*$"
         if re.search(key, text, re.MULTILINE):
-            text = re.sub(key, r"\1allow_implicit_invocation: false", text, flags=re.MULTILINE)
+            text = re.sub(key, r"\1allow_implicit_invocation: " + flag, text, flags=re.MULTILINE)
         else:
             indent = re.search(r"^[ \t]+(?=\w)", text, re.MULTILINE)
-            text += "\n" + (indent[0] if indent else "  ") + "allow_implicit_invocation: false"
+            text += "\n" + (indent[0] if indent else "  ") + "allow_implicit_invocation: " + flag
         yaml = yaml[:block.start()] + text + "\n" + yaml[block.end():]
     else:
         gate([f"{path}: expected a block-style policy"] if re.search(r"^policy:", yaml, re.MULTILINE) else [])
-        yaml = (yaml.rstrip("\n") + "\n" if yaml else "") + "policy:\n  allow_implicit_invocation: false\n"
+        yaml = (yaml.rstrip("\n") + "\n" if yaml else "") + "policy:\n  allow_implicit_invocation: " + flag + "\n"
     path.write_text(yaml)
 
 
-def write_skill(d, src, publisher, repo):
+def write_skill(d, src, publisher, repo, implicit=False):
     """Package a skill with explicit invocation policies for both hosts.
     Claude Code: `disable-model-invocation: true` (https://code.claude.com/docs/en/skills#control-who-invokes-a-skill).
     Codex: agents/openai.yaml `policy.allow_implicit_invocation: false` (https://learn.chatgpt.com/docs/build-skills)."""
@@ -643,9 +729,10 @@ def write_skill(d, src, publisher, repo):
     agents.mkdir(exist_ok=True)
     policy = agents / "openai.yaml"
     gate([f"{policy}: expected a regular file"] if policy.is_symlink() else [])
-    explicit_policy(policy)
+    explicit_policy(policy, implicit)
     skill = d / "SKILL.md"
-    skill.write_text("\n".join(["---", "disable-model-invocation: true", *fm, *lines[end:]]))
+    # A # Workflow skill stays visible to the model, so an agent follows it when the user names it in prose.
+    skill.write_text("\n".join(["---", *([] if implicit else ["disable-model-invocation: true"]), *fm, *lines[end:]]))
     stamp(skill, {"publisher": publisher, "source": repo, "source-url": f"https://github.com/{repo}"}, True)
     return True
 
@@ -659,11 +746,14 @@ def build_market(pack, offered):
         publisher = pack.publisher[repo.lower()]
         name, paths = slug(publisher), discover_paths(CACHE / repo.replace("/", "@"))
         base = MARKET / "plugins" / name
-        made = sum(write_skill(base / "skills" / n, paths[n], publisher, repo) for n in sorted(skills) if n in paths)
+        made = sum(write_skill(base / "skills" / n, paths[n], publisher, repo, f"{name}:{n}" in pack.workflow)
+                   for n in sorted(skills) if n in paths)
         if not made:
             continue
+        auto = sum(1 for n in skills if f"{name}:{n}" in pack.workflow and n in paths)
         meta = {"name": name, "version": "1.0.0",
-                "description": f"{made} explicit-only {publisher} skills from github.com/{repo}.",
+                "description": f"{made} {publisher} skills from github.com/{repo}"
+                               + (f" ({auto} workflow, the rest explicit-only)." if auto else ", explicit-only."),
                 "author": {"name": publisher}, "repository": f"https://github.com/{repo}"}
         (base / ".claude-plugin").mkdir(parents=True)
         (base / ".claude-plugin/plugin.json").write_text(json.dumps(meta, indent=2))
@@ -735,6 +825,7 @@ def publish(pack, offered):
                ["plugin", "uninstall"], ["plugin", "install"]),
               ("codex", ["plugin", "marketplace", "remove", MARKET_NAME], ["plugin", "marketplace", "add", str(MARKET)],
                ["plugin", "remove"], ["plugin", "add"])]
+    off = disabled_plugins()  # the owner turned these off (doctor, /plugin, prune): a refresh must not turn them back on
     done = []
     for cli, remove_market, add_market, uninstall, install_cmd in agents:
         if not shutil.which(cli):
@@ -743,14 +834,16 @@ def publish(pack, offered):
         for p in plugins:
             run([cli, *uninstall, f"{p['name']}@{MARKET_NAME}"], capture_output=True)
         run([cli, *remove_market], capture_output=True)
-        steps = [[cli, *add_market]] + [[cli, *install_cmd, f"{p['name']}@{MARKET_NAME}"] for p in plugins]
+        keep = [p for p in plugins if cli != "claude" or f"{p['name']}@{MARKET_NAME}" not in off]
+        steps = [[cli, *add_market]] + [[cli, *install_cmd, f"{p['name']}@{MARKET_NAME}"] for p in keep]
         for step in steps:
             res = run(step, capture_output=True, text=True)
             if res.returncode:
                 gate([f"{shlex.join(step)} failed: {(res.stderr or res.stdout).strip().splitlines()[-1:]}"])
         done.append(cli)
     total = sum(p["_count"] for p in plugins)
-    print(f"plugins: {len(plugins)} publishers, {total} skills, installed into {', '.join(done) or 'no agent'}")
+    print(f"plugins: {len(plugins)} publishers, {total} skills, installed into {', '.join(done) or 'no agent'}"
+          + (f"; left off in Claude Code: {', '.join(sorted(off))}" if off else ""))
     portable()
     return plugins
 
@@ -856,6 +949,8 @@ def main(argv):
         return 0
     if verb == "use":
         return use(pack, rest)
+    if verb == "prune":
+        return prune(dry)
     if verb == "tools":
         return tools(pack, dry)
     if verb == "stamp":

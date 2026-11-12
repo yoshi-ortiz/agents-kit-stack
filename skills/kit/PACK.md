@@ -55,6 +55,15 @@ app's own tools (`ccd_*`, terminal, browser, computer use) are left alone.
 10. `RemoteTrigger`
 11. `PushNotification`
 
+# Workflow
+
+Catalog skills an agent may load on its own, because the owner's process depends on them. Everything else
+in the catalog is explicit-only. Each one costs its description in every session, so `verify` caps the total.
+
+1. ponytail:ponytail
+2. superpowers:verification-before-completion
+3. superpowers:finishing-a-development-branch
+
 # Batteries included
 
 The catalog. One bullet per source: `* <img/> [Name](github url): skills`.
