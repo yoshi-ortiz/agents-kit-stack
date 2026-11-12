@@ -35,6 +35,7 @@ Entries the agents ship or manage themselves. Kit ignores these names in agent s
 13. review-agent
 14. skill-creator
 15. skill-installer
+16. rex
 
 # Tools
 
@@ -76,6 +77,8 @@ A bullet here that does not parse fails the run.
 * <img src="https://github.com/hashicorp.png" width="20"> [HashiCorp](https://github.com/hashicorp/agent-skills)
 * <img src="https://github.com/cloudflare.png" width="20"> [Cloudflare](https://github.com/cloudflare/skills)
 * [benjitaylor/skills](https://github.com/benjitaylor/skills)
+* <img src="https://github.com/mindrally.png" width="20"> [mindrally](https://github.com/mindrally/skills): bootstrap
+* <img src="https://github.com/digitalsamba.png" width="20"> [Digital Samba](https://github.com/digitalsamba/claude-code-video-toolkit): ffmpeg
 
 # Domains
 
@@ -92,6 +95,7 @@ when two sources offer it. `owner/repo` alone means every skill the catalog offe
 6. mattpocock/skills:tdd
 7. writing-for-agents
 8. research
+9. mcp:tree-sitter
 
 ## architecture
 
@@ -147,6 +151,7 @@ Added per project by `kit domain <domain>` when a domain lists `mcp:<name>`: Cla
 
 1. terraform docker run -i --rm hashicorp/terraform-mcp-server:1.4.1
 2. cloudflare https://mcp.cloudflare.com/mcp
+3. tree-sitter uvx mcp-server-tree-sitter==0.7.0
 
 Not added yet, reference only: context7, [WebMCP](https://developer.chrome.com/docs/ai/webmcp?hl=es-419),
 [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp), playwright.
