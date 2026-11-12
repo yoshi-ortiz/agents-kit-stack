@@ -2,16 +2,12 @@
 
 What went wrong while building `kit`, so the next session does not repeat it. Written from the session thread. Each entry says what was claimed, what was true, and whether it is fixed.
 
-## 2026-11-12: explicit-only made the owner's workflow invisible, and kit edits never reached git
+## 2026-11-12: kit edits never reached git, and a refresh undid the owner's choices
 
-What was claimed: kit makes every skill available at zero cost. What was true in a Claude Desktop Code-tab session on homelab-infra:
+1. **Kit edits were lost.** `~/.agents/skills/kit` was a copy. `kit add benjitaylor/skills` wrote the stageshow row into the copy's PACK.md, and the deployed packages.py was never committed. Fixed: the install is a symlink to this repo, and `verify` fails when kit runs from a copy or has uncommitted changes.
+2. **A refresh undid disabled plugins.** `kit-starter-pack` reinstalled every publisher plugin. Fixed: plugins set to `false` in `~/.claude/settings.json` stay off. `prune` turns off enabled plugins with no recorded use; `verify` names them.
 
-1. **Agents could not see a single catalog skill.** All 250 published skills carried `disable-model-invocation: true`, and `kit` itself did too. The owner wrote "ponytail skill" and typed `/pstack:how`; the slash command arrived as plain text and the agent had no skill to load. Workflows the owner depends on (stageshow for the Portal UI, superpowers for branch finishing) were never applied, and the agent rebuilt on an old branch.
-2. **Zero cost was not zero.** Every enabled publisher plugin still projected always-on tokens (`ponytail@kit` ~671), and 3 of 15 (anthropic, cloudflare, tuist: 53 skills) were never used in 83 startups. `verify` could not see either problem.
-3. **Kit edits were lost.** `~/.agents/skills/kit` was a copy. `kit add benjitaylor/skills` wrote the stageshow row into the copy's PACK.md, and the deployed packages.py was never committed. The repo did not match what ran.
-4. **A refresh undid the owner's choices.** `kit-starter-pack` reinstalled every publisher plugin, including ones turned off.
-
-Fixed on `dev.kit.model`: `kit` is model-visible and routes prose mentions to `kit use`; PACK.md `# Workflow` keeps named skills visible (ponytail, verification-before-completion, finishing-a-development-branch) under the listing cap; `verify` counts what agents see at startup and fails on a copied install or uncommitted kit changes; `prune` turns off unused plugins and `kit-starter-pack` keeps them off; `kit-shot` encodes the owner's feature process. Not yet measured: a fresh desktop session's `/context` after republishing.
+**My mistake in the same session:** I read explicit-only as the cause of an agent derailing in homelab-infra and made `kit` plus three catalog skills model-visible, with a `kit-shot` process skill. Explicit-only is the design: it keeps the context window small, and a bloated window also causes derailing. Reverted the same day. Kit manages skill installation only; a project's development process and its evals belong in that project.
 
 ## Fresh-session measurements for Claude Code and Codex
 

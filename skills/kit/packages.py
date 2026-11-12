@@ -43,7 +43,7 @@ TIMEOUT = 600  # seconds per command
 SLASH = Path.home() / ".claude/skills"  # where the earlier layout wrote stubs
 MARKET = Path.home() / ".cache/kit/marketplace"
 MARKET_NAME = "kit"
-SELF = {"kit", "kit-starter-pack", "kit-shot"}  # installed from this package's own repo, not from a catalog row
+SELF = {"kit", "kit-starter-pack"}  # installed from this package's own repo, not from a catalog row
 SETTINGS = Path.home() / ".claude/settings.json"
 CLAUDE_STATE = Path.home() / ".claude.json"  # Claude Code's own usage counters (skillUsage, pluginUsage)
 TOOLS_OWNED = Path.home() / ".cache/kit/tools.json"  # deny rules kit added, so it never removes yours
@@ -92,7 +92,6 @@ class Pack:
     def __init__(self, text):
         self.text, self.rows, self.domains, self.agents, problems = text, {}, {}, [], []
         self.owned, self.publisher, self.tools, self.mcp = set(), {}, [], {}
-        self.workflow = set()  # "publisher:skill" names an agent may load on its own (# Workflow)
         section = domain = ""
         for n, line in enumerate(text.splitlines(), 1):
             if line.startswith("# "):
@@ -118,12 +117,6 @@ class Pack:
                     problems.append(f"PACK.md:{n} is not `1. name https://url` or `1. name command args`")
                 else:
                     self.mcp[m.group(1)] = m.group(2)
-            elif section == "workflow" and re.match(r"^\s*\d+\.", line):
-                m = re.match(r"^\s*\d+\.\s+`?([a-z0-9-]+):([a-z0-9-]+)`?\s*$", line)
-                if not m:
-                    problems.append(f"PACK.md:{n} is not `1. publisher:skill`")
-                else:
-                    self.workflow.add(f"{m.group(1)}:{m.group(2)}")
             elif section in ("agents", "agent-owned", "tools", "domains") and re.match(r"^\s*\d+\.", line):
                 m = ITEM.match(line)
                 if not m:
@@ -403,7 +396,7 @@ class Scope:
                 problems.append(f"{self.name}: {name} is in the lock but not in {self.store}")
         for folder in self.folders():
             for p in sorted(folder.iterdir()):
-                if (p.name.startswith(".") or p.name in pack.owned or p.name in SELF or (p / ".kit-stub").is_file()
+                if (p.name.startswith(".") or p.name in pack.owned or (p / ".kit-stub").is_file()
                         or str(p.relative_to(self.root)) in self.tracked):
                     continue
                 if p.name not in lock:
@@ -522,24 +515,6 @@ def disabled_plugins():
     return {k for k, v in read_settings().get("enabledPlugins", {}).items() if v is False and k.endswith("@" + MARKET_NAME)}
 
 
-def visible_listing():
-    """Description bytes of the skills an agent sees at startup: kit's own skills plus every # Workflow skill of an
-    enabled plugin. Explicit-only skills are not listed (disable-model-invocation), so they cost nothing here."""
-    off, total, names = disabled_plugins(), 0, []
-    roots = [(n, HOME / ".agents/skills" / n / "SKILL.md") for n in sorted(SELF)]
-    for skill in sorted(MARKET.glob("plugins/*/skills/*/SKILL.md")):
-        plugin = skill.parents[2].name
-        if f"{plugin}@{MARKET_NAME}" not in off:
-            roots.append((f"{plugin}:{skill.parent.name}", skill))
-    for name, path in roots:
-        if not path.is_file() or re.search(r"^disable-model-invocation:\s*true", path.read_text(errors="ignore"), re.MULTILINE):
-            continue
-        desc = frontmatter(path)[1] or ""
-        total += len(name.encode()) + len(desc.encode())
-        names.append(name)
-    return names, total
-
-
 def source_drift():
     """Kit edits itself (`kit add` writes PACK.md). When it runs from a copy, or its source has uncommitted changes,
     those edits never reach git: the 2026-11-12 incident lost a PACK.md row and a whole packages.py that way."""
@@ -590,14 +565,10 @@ def prune(dry):
 def verify(pack, strict_projection=False):
     problems = [p for s in scopes() for p in s.drift(pack) + s.stamps(pack, False)] + twice()
     budget_problems, count, listing = budget(pack)
-    shown, visible = visible_listing()
-    if visible > MAX_LISTING_BYTES:
-        problems.append(f"{visible} description bytes of workflow skills in every session, over the {MAX_LISTING_BYTES} cap")
     gate(problems + budget_problems + source_drift() + (tool_drift(pack) if INDEX.exists() else []))
     if strict_projection:
         gate(claude_projection(), "Plugin projections are estimates. Measure startup context separately.")
     print(f"ok: skills CLI locks contain {count} skills and {listing} description bytes")
-    print(f"ok: agents see {len(shown)} skills at startup ({visible} description bytes): {', '.join(shown)}")
     idle = unused_plugins()
     if idle:
         print(f"hint: {len(idle)} enabled plugin(s) never used: {', '.join(idle)}. Turn them off: python3 packages.py prune")
@@ -688,26 +659,25 @@ def slug(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
-def explicit_policy(path, implicit=False):
-    flag = "true" if implicit else "false"
+def explicit_policy(path):
     yaml = path.read_text() if path.exists() else ""
     block = re.search(r"^policy:[ \t]*(?:#[^\n]*)?\n(?:[ \t]+[^\n]*\n?)*", yaml, re.MULTILINE)
     if block:
         text = block[0].rstrip("\n")
         key = r"^([ \t]+)allow_implicit_invocation:.*$"
         if re.search(key, text, re.MULTILINE):
-            text = re.sub(key, r"\1allow_implicit_invocation: " + flag, text, flags=re.MULTILINE)
+            text = re.sub(key, r"\1allow_implicit_invocation: false", text, flags=re.MULTILINE)
         else:
             indent = re.search(r"^[ \t]+(?=\w)", text, re.MULTILINE)
-            text += "\n" + (indent[0] if indent else "  ") + "allow_implicit_invocation: " + flag
+            text += "\n" + (indent[0] if indent else "  ") + "allow_implicit_invocation: false"
         yaml = yaml[:block.start()] + text + "\n" + yaml[block.end():]
     else:
         gate([f"{path}: expected a block-style policy"] if re.search(r"^policy:", yaml, re.MULTILINE) else [])
-        yaml = (yaml.rstrip("\n") + "\n" if yaml else "") + "policy:\n  allow_implicit_invocation: " + flag + "\n"
+        yaml = (yaml.rstrip("\n") + "\n" if yaml else "") + "policy:\n  allow_implicit_invocation: false\n"
     path.write_text(yaml)
 
 
-def write_skill(d, src, publisher, repo, implicit=False):
+def write_skill(d, src, publisher, repo):
     """Package a skill with explicit invocation policies for both hosts.
     Claude Code: `disable-model-invocation: true` (https://code.claude.com/docs/en/skills#control-who-invokes-a-skill).
     Codex: agents/openai.yaml `policy.allow_implicit_invocation: false` (https://learn.chatgpt.com/docs/build-skills)."""
@@ -729,10 +699,9 @@ def write_skill(d, src, publisher, repo, implicit=False):
     agents.mkdir(exist_ok=True)
     policy = agents / "openai.yaml"
     gate([f"{policy}: expected a regular file"] if policy.is_symlink() else [])
-    explicit_policy(policy, implicit)
+    explicit_policy(policy)
     skill = d / "SKILL.md"
-    # A # Workflow skill stays visible to the model, so an agent follows it when the user names it in prose.
-    skill.write_text("\n".join(["---", *([] if implicit else ["disable-model-invocation: true"]), *fm, *lines[end:]]))
+    skill.write_text("\n".join(["---", "disable-model-invocation: true", *fm, *lines[end:]]))
     stamp(skill, {"publisher": publisher, "source": repo, "source-url": f"https://github.com/{repo}"}, True)
     return True
 
@@ -746,14 +715,11 @@ def build_market(pack, offered):
         publisher = pack.publisher[repo.lower()]
         name, paths = slug(publisher), discover_paths(CACHE / repo.replace("/", "@"))
         base = MARKET / "plugins" / name
-        made = sum(write_skill(base / "skills" / n, paths[n], publisher, repo, f"{name}:{n}" in pack.workflow)
-                   for n in sorted(skills) if n in paths)
+        made = sum(write_skill(base / "skills" / n, paths[n], publisher, repo) for n in sorted(skills) if n in paths)
         if not made:
             continue
-        auto = sum(1 for n in skills if f"{name}:{n}" in pack.workflow and n in paths)
         meta = {"name": name, "version": "1.0.0",
-                "description": f"{made} {publisher} skills from github.com/{repo}"
-                               + (f" ({auto} workflow, the rest explicit-only)." if auto else ", explicit-only."),
+                "description": f"{made} explicit-only {publisher} skills from github.com/{repo}.",
                 "author": {"name": publisher}, "repository": f"https://github.com/{repo}"}
         (base / ".claude-plugin").mkdir(parents=True)
         (base / ".claude-plugin/plugin.json").write_text(json.dumps(meta, indent=2))

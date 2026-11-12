@@ -1,6 +1,7 @@
 ---
 name: kit
-description: Load a named catalog skill on demand (ponytail, pstack:how, stageshow, superpowers:…), or set up kit. Use when the user names a skill in prose or a /publisher:skill command arrives as plain text.
+disable-model-invocation: true
+description: Call any skill from the kit catalog without preloading it, add a domain's MCP servers, or add a source. Use for kit, kit <skill>, kit <domain>, kit add, kit-starter-pack.
 ---
 
 # Kit
@@ -19,8 +20,6 @@ description: Load a named catalog skill on demand (ponytail, pstack:how, stagesh
 | `kit tools` | `K tools` | |
 
 Rules:
-
-0. A skill name in the user's words (`ponytail skill`, `use stageshow`) or a `/publisher:skill` that arrived as plain text means `K use <name>`, then follow it. Most catalog skills are explicit-only, so this is the only way an agent can read them.
 
 1. `use` says a name is offered twice: run `K use owner/repo:<skill>` with the source the user means.
 2. After setup, Claude Code has `/publisher:skill`, Codex has `$publisher:skill`, Cursor and Zed have `/publisher-skill`, and Pi has `/skill:publisher-skill`. In Antigravity, use `/kit publisher:skill`.
