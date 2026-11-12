@@ -403,7 +403,7 @@ class Scope:
                 problems.append(f"{self.name}: {name} is in the lock but not in {self.store}")
         for folder in self.folders():
             for p in sorted(folder.iterdir()):
-                if (p.name.startswith(".") or p.name in pack.owned or (p / ".kit-stub").is_file()
+                if (p.name.startswith(".") or p.name in pack.owned or p.name in SELF or (p / ".kit-stub").is_file()
                         or str(p.relative_to(self.root)) in self.tracked):
                     continue
                 if p.name not in lock:
