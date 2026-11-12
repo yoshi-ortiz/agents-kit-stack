@@ -2,7 +2,9 @@
 """kit: install only the skills a project calls for, from the PACK.md catalog, or fail.
 
   packages.py                          verify: gate both scopes, install nothing
-  packages.py kit-starter-pack         index every catalog skill into ~/.cache/kit; installs and loads nothing
+  packages.py kit-starter-pack         index the catalog and publish explicit-only plugins
+  packages.py verify --strict-projection  also fail on nonzero Claude plugin token estimates
+  packages.py portable                refresh shared skill commands from the published catalog
   packages.py use <skill>...           print a catalog skill from the index, so it enters the context only when called
   packages.py tools                    deny PACK.md `# Tools` in ~/.claude/settings.json, so no session loads them
   packages.py domain <domain>...       add the domain's MCP servers to this project and list its /publisher:skill commands
@@ -209,14 +211,18 @@ def index_one(repo, cached):
 
 
 def index(pack, repos, offline=False):
-    CACHE.mkdir(parents=True, exist_ok=True)
     try:
         idx = json.loads(INDEX.read_text())
     except (FileNotFoundError, ValueError):
         idx = {}
-    with ThreadPoolExecutor(8) as pool:
-        results = list(pool.map(lambda r: (r, idx[r], None) if offline and r in idx
-                                else index_one(r, idx.get(r, {})), repos))
+    if offline:
+        gate([f"{r}: missing from the local index. Run: python3 packages.py kit-starter-pack"
+              for r in repos if r not in idx])
+        results = [(r, idx[r], None) for r in repos]
+    else:
+        CACHE.mkdir(parents=True, exist_ok=True)
+        with ThreadPoolExecutor(8) as pool:
+            results = list(pool.map(lambda r: index_one(r, idx.get(r, {})), repos))
     problems = [err for _, _, err in results if err]
     for repo, entry, _ in results:
         if entry:
@@ -224,8 +230,9 @@ def index(pack, repos, offline=False):
             offered = pack.rows[repo.lower()][1]
             problems += [f"{repo}: catalog offers {n}, which the repo does not have"
                          for n in offered if n not in entry["skills"]]
-    INDEX.write_text(json.dumps(idx, indent=1, sort_keys=True))
     gate(problems)
+    if not offline:
+        INDEX.write_text(json.dumps(idx, indent=1, sort_keys=True))
     return {r: {n: b for n, b in idx[r]["skills"].items() if not pack.rows[r.lower()][1]
                 or n in pack.rows[r.lower()][1]} for r in repos}
 
@@ -236,14 +243,19 @@ def resolve(pack, tokens, offline=False):
     for t in tokens:
         items += pack.domains[t.lower()] if t.lower() in pack.domains else [t]
     items = [i for i in items if not i.startswith("mcp:")]  # servers, not skills: see domain()
-    needed = {pack.repo(i.split(":")[0]) for i in items if pack.repo(i.split(":")[0])}
-    if any(not pack.repo(i.split(":")[0]) for i in items):
+    aliases = {slug(p): pack.repo(r) for r, p in pack.publisher.items()}
+
+    def source(prefix):
+        return pack.repo(prefix) or aliases.get(prefix.lower())
+
+    needed = {source(i.split(":", 1)[0]) if ":" in i else pack.repo(i) for i in items}
+    if None in needed:
         needed = {repo for repo, _ in pack.rows.values()}  # a bare name: search the catalog
     offered = index(pack, sorted(needed), offline)
     picks, problems = {}, []
     for item in items:
         repo_part, _, name = item.partition(":")
-        repo = pack.repo(repo_part)
+        repo = source(repo_part) if name else pack.repo(repo_part)
         if repo and name:
             hits = [repo] if name in offered[repo] else []
         elif repo:
@@ -476,11 +488,34 @@ def install(pack, tokens, is_global, dry):
     return 0
 
 
-def verify(pack):
+def claude_projection():
+    if not shutil.which("claude"):
+        return ["Claude Code is required to check plugin token projections"]
+    result = run(["claude", "plugin", "list", "--json"], capture_output=True, text=True)
+    try:
+        plugins = [p["id"] for p in json.loads(result.stdout) if p["id"].endswith("@kit") and p.get("enabled")]
+    except (ValueError, TypeError, KeyError):
+        plugins = []
+    if result.returncode or not plugins:
+        return ["Could not read any enabled @kit plugins from Claude Code"]
+    problems = []
+    for plugin in plugins:
+        details = run(["claude", "plugin", "details", plugin], capture_output=True, text=True)
+        cost = re.search(r"^\s*Always-on:\s*(.+)$", details.stdout, re.MULTILINE)
+        if details.returncode or not cost:
+            problems.append(f"{plugin}: could not read the always-on token projection")
+        elif not re.match(r"^~?0\s+tok\b", cost[1]):
+            problems.append(f"{plugin}: Claude Code projects {cost[1].strip()}")
+    return problems
+
+
+def verify(pack, strict_projection=False):
     problems = [p for s in scopes() for p in s.drift(pack) + s.stamps(pack, False)] + twice()
     budget_problems, count, listing = budget(pack)
     gate(problems + budget_problems + (tool_drift(pack) if INDEX.exists() else []))
-    print(f"ok: {count} skills per session, {listing} description bytes, all from the catalog")
+    if strict_projection:
+        gate(claude_projection(), "Plugin projections are estimates. Measure startup context separately.")
+    print(f"ok: skills CLI locks contain {count} skills and {listing} description bytes")
     if not INDEX.exists():
         print("first run: the catalog is not indexed. Index every skill, loading none: "
               "python3 packages.py kit-starter-pack")
@@ -568,8 +603,26 @@ def slug(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
+def explicit_policy(path):
+    yaml = path.read_text() if path.exists() else ""
+    block = re.search(r"^policy:[ \t]*(?:#[^\n]*)?\n(?:[ \t]+[^\n]*\n?)*", yaml, re.MULTILINE)
+    if block:
+        text = block[0].rstrip("\n")
+        key = r"^([ \t]+)allow_implicit_invocation:.*$"
+        if re.search(key, text, re.MULTILINE):
+            text = re.sub(key, r"\1allow_implicit_invocation: false", text, flags=re.MULTILINE)
+        else:
+            indent = re.search(r"^[ \t]+(?=\w)", text, re.MULTILINE)
+            text += "\n" + (indent[0] if indent else "  ") + "allow_implicit_invocation: false"
+        yaml = yaml[:block.start()] + text + "\n" + yaml[block.end():]
+    else:
+        gate([f"{path}: expected a block-style policy"] if re.search(r"^policy:", yaml, re.MULTILINE) else [])
+        yaml = (yaml.rstrip("\n") + "\n" if yaml else "") + "policy:\n  allow_implicit_invocation: false\n"
+    path.write_text(yaml)
+
+
 def write_skill(d, src, publisher, repo):
-    """Copy one catalog skill into a plugin, so it runs only when typed and costs no context before.
+    """Package a skill with explicit invocation policies for both hosts.
     Claude Code: `disable-model-invocation: true` (https://code.claude.com/docs/en/skills#control-who-invokes-a-skill).
     Codex: agents/openai.yaml `policy.allow_implicit_invocation: false` (https://learn.chatgpt.com/docs/build-skills)."""
     lines = src.read_text(errors="ignore").split("\n")
@@ -579,15 +632,18 @@ def write_skill(d, src, publisher, repo):
     fm = [x for x in lines[1:end] if not x.startswith("disable-model-invocation:")]
     d.mkdir(parents=True)
     for item in src.parent.iterdir():
-        if item.name not in ("SKILL.md", "agents"):
-            (d / item.name).symlink_to(item)
+        if item.name in ("SKILL.md", ".git"):
+            continue
+        # Both plugin caches discard symlinks into the external source checkout.
+        if item.is_dir():
+            shutil.copytree(item, d / item.name, symlinks=True)
+        else:
+            shutil.copy2(item, d / item.name, follow_symlinks=False)
     agents = d / "agents"
-    agents.mkdir()
-    if (src.parent / "agents").is_dir():
-        for item in (src.parent / "agents").iterdir():
-            if item.name != "openai.yaml":
-                (agents / item.name).symlink_to(item)
-    (agents / "openai.yaml").write_text("policy:\n  allow_implicit_invocation: false\n")
+    agents.mkdir(exist_ok=True)
+    policy = agents / "openai.yaml"
+    gate([f"{policy}: expected a regular file"] if policy.is_symlink() else [])
+    explicit_policy(policy)
     skill = d / "SKILL.md"
     skill.write_text("\n".join(["---", "disable-model-invocation: true", *fm, *lines[end:]]))
     stamp(skill, {"publisher": publisher, "source": repo, "source-url": f"https://github.com/{repo}"}, True)
@@ -607,7 +663,7 @@ def build_market(pack, offered):
         if not made:
             continue
         meta = {"name": name, "version": "1.0.0",
-                "description": f"{made} {publisher} skills from github.com/{repo}. Each loads only when typed.",
+                "description": f"{made} explicit-only {publisher} skills from github.com/{repo}.",
                 "author": {"name": publisher}, "repository": f"https://github.com/{repo}"}
         (base / ".claude-plugin").mkdir(parents=True)
         (base / ".claude-plugin/plugin.json").write_text(json.dumps(meta, indent=2))
@@ -619,6 +675,55 @@ def build_market(pack, offered):
         {"name": MARKET_NAME, "owner": {"name": "kit"}, "description": "The kit catalog, one plugin per publisher.",
          "plugins": [{k: v for k, v in p.items() if k != "_count"} for p in plugins]}, indent=2))
     return plugins
+
+
+def portable():
+    """Publish explicit aliases in the shared skill root and one Antigravity router."""
+    manifest = MARKET / ".claude-plugin/marketplace.json"
+    gate([f"{manifest} is missing. Run kit-starter-pack first."] if not manifest.is_file() else [])
+    shared = HOME / ".agents/skills"
+    commands = {}
+    for plugin in json.loads(manifest.read_text())["plugins"]:
+        publisher = plugin["name"]
+        for skill in sorted((MARKET / plugin["source"] / "skills").glob("*/SKILL.md")):
+            name = f"{publisher}-{skill.parent.name}"
+            gate([f"{name}: duplicate or invalid portable command name"]
+                 if name in commands or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name) or len(name) > 64 else [])
+            path = skill.relative_to(HOME)
+            commands[name] = (
+                f"Open `~/{path}` and follow that skill for the user's request. "
+                "Resolve its relative paths from that skill's directory."
+            )
+
+    router = HOME / ".gemini/config/skills/kit"
+    install = {shared / name: body for name, body in commands.items()}
+    if not (router.is_symlink() and router.resolve() == (shared / "kit").resolve()):
+        install[router] = (
+            "Open `~/.agents/skills/kit/SKILL.md` and follow its command table. "
+            "Run `packages.py` from that skill's directory using its absolute path."
+        )
+    marker = "kit-portable-v1\n"
+
+    def owned(folder):
+        stamp = folder / ".kit-stub"
+        return not folder.is_symlink() and stamp.is_file() and stamp.read_text() == marker
+
+    gate([f"{folder}: another skill already owns this path"
+          for folder in install if (folder.exists() or folder.is_symlink()) and not owned(folder)])
+    for folder, body in install.items():
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / ".kit-stub").write_text(marker)
+        (folder / "SKILL.md").write_text(
+            f"---\nname: {folder.name}\ndescription: Open the Kit skill {folder.name}.\n"
+            f"disable-model-invocation: true\n---\n\n{body}\n"
+        )
+        agents = folder / "agents"
+        agents.mkdir(exist_ok=True)
+        explicit_policy(agents / "openai.yaml")
+    for folder in shared.iterdir():
+        if folder not in install and owned(folder):
+            shutil.rmtree(folder)
+    print(f"shared: {len(commands)} explicit aliases for Cursor, Zed, and Pi. Antigravity: /kit router")
 
 
 def publish(pack, offered):
@@ -646,17 +751,19 @@ def publish(pack, offered):
         done.append(cli)
     total = sum(p["_count"] for p in plugins)
     print(f"plugins: {len(plugins)} publishers, {total} skills, installed into {', '.join(done) or 'no agent'}")
+    portable()
     return plugins
 
 
 def domain(pack, names, dry):
     """Add a domain's MCP servers to this project, for Claude Code (.mcp.json) and Codex (.codex/config.toml),
-    and list its skills. Servers load only in this project; skills stay as zero-context plugins."""
+    and list its skills. The project configuration scopes the servers to this project."""
     gate([f"{n}: not a domain. Domains: {', '.join(pack.domains)}" for n in names if n.lower() not in pack.domains]
          or ([] if names else [f"name a domain: {', '.join(pack.domains)}"]))
     items = [i for n in names for i in pack.domains[n.lower()]]
-    servers = [i[4:] for i in items if i.startswith("mcp:")]
+    servers = list(dict.fromkeys(i[4:] for i in items if i.startswith("mcp:")))
     gate([f"mcp:{s} is not under PACK.md # MCP servers" for s in servers if s not in pack.mcp])
+    skills = resolve(pack, [i for i in items if not i.startswith("mcp:")], offline=True)
     scope = Scope(False)
     toml = scope.root / ".codex/config.toml"
     for s in servers:
@@ -682,7 +789,7 @@ def domain(pack, names, dry):
               if shutil.which("claude") and s not in mcp_json.get("mcpServers", {})] +
              [f"{s}: not in {toml}" for s in servers if f"[mcp_servers.{s}]" not in toml.read_text()])
         print(f"ok: {len(servers)} MCP server(s) for this project: {', '.join(servers)}")
-    for name, (repo, _) in resolve(pack, [i for i in items if not i.startswith("mcp:")], offline=True).items():
+    for name, (repo, _) in skills.items():
         print(f"  /{slug(pack.publisher[repo.lower()])}:{name}")
     return 0
 
@@ -724,20 +831,29 @@ def main(argv):
     argv = [a for a in argv if a not in ("--dry-run", "-g", "--global")]
     gate([f"{t} not found; kit does not install runtimes" for t in ("npx", "git") if not shutil.which(t)])
     pack = Pack(PACK.read_text())
-    if not argv or argv == ["verify"]:
-        return verify(pack)
+    if not argv or argv in (["verify"], ["verify", "--strict-projection"]):
+        return verify(pack, strict_projection="--strict-projection" in argv)
     verb, rest = argv[0], argv[1:]
     if verb == "kit-starter-pack":
         repos = [r for r, _ in pack.rows.values()]
+        if dry:
+            print(f"would index {len(repos)} sources, publish explicit-only plugins, and apply {len(pack.tools)} Claude tool rules")
+            return 0
         offered = index(pack, repos)
         plugins = publish(pack, offered)
         tools(pack, False)
-        print(f"ok: {sum(len(v) for v in offered.values())} skills from {len(repos)} sources, nothing loaded until typed. "
-              f"Call one as /<publisher>:<skill> in Claude Code or $<publisher>:<skill> in Codex, "
-              f"for example /{plugins[0]['name']}:<skill>")
+        print(f"ok: packaged {sum(p['_count'] for p in plugins)} explicit-only skills from {len(repos)} sources. "
+              "Use /<publisher>:<skill> in Claude Code, $<publisher>:<skill> in Codex, "
+              "or kit <publisher>:<skill> to read it from the local catalog.")
         return 0
     if verb == "domain":
         return domain(pack, rest, dry)
+    if argv == ["portable"]:
+        if dry:
+            print("would refresh shared skill commands and the Antigravity router")
+        else:
+            portable()
+        return 0
     if verb == "use":
         return use(pack, rest)
     if verb == "tools":

@@ -75,6 +75,7 @@ A bullet here that does not parse fails the run.
 * <img src="https://github.com/upstash.png" width="20"> [Context7](https://github.com/upstash/context7)
 * <img src="https://github.com/hashicorp.png" width="20"> [HashiCorp](https://github.com/hashicorp/agent-skills)
 * <img src="https://github.com/cloudflare.png" width="20"> [Cloudflare](https://github.com/cloudflare/skills)
+* [benjitaylor/skills](https://github.com/benjitaylor/skills)
 
 # Domains
 
