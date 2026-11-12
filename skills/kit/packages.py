@@ -4,7 +4,7 @@
   packages.py                          verify: gate both scopes, install nothing
   packages.py kit-starter-pack         index the catalog and publish explicit-only plugins
   packages.py verify --strict-projection  also fail on nonzero Claude plugin token estimates
-  packages.py prune [--dry-run]        disable enabled @kit plugins nobody has used, in ~/.claude/settings.json
+  packages.py prune [<plugin>...]      list unused @kit plugins; turn off only the ones named, in ~/.claude/settings.json
   packages.py portable                refresh shared skill commands from the published catalog
   packages.py use <skill>...           print a catalog skill from the index, so it enters the context only when called
   packages.py tools                    deny PACK.md `# Tools` in ~/.claude/settings.json, so no session loads them
@@ -546,11 +546,18 @@ def unused_plugins():
                   if not plugins.get(k, {}).get("usageCount") and not any(s.startswith(k.split("@")[0] + ":") for s in skills))
 
 
-def prune(dry):
-    """Turn off unused @kit plugins in ~/.claude/settings.json. Undo: set them back to true, or use /plugin."""
-    names = unused_plugins()
-    print(f"prune: {len(names)} unused plugin(s): {', '.join(names) or 'none'}")
-    if dry or not names:
+def prune(dry, picked=()):
+    """Turn off the named unused @kit plugins; bare prune only lists them (never a bulk disable). Undo: /plugin."""
+    unused = unused_plugins()
+    print(f"prune: {len(unused)} unused plugin(s): {', '.join(unused) or 'none'}")
+    names = [n if "@" in n else f"{n}@{MARKET_NAME}" for n in picked]
+    gate([f"{n} is not an unused @kit plugin" for n in names if n not in unused])
+    if not names:
+        if unused:
+            print("ask the owner which to turn off, then: python3 packages.py prune <plugin>...")
+        return 0
+    if dry:
+        print(f"would turn off: {', '.join(names)}")
         return 0
     settings = read_settings()
     CACHE.mkdir(parents=True, exist_ok=True)
@@ -571,7 +578,7 @@ def verify(pack, strict_projection=False):
     print(f"ok: skills CLI locks contain {count} skills and {listing} description bytes")
     idle = unused_plugins()
     if idle:
-        print(f"hint: {len(idle)} enabled plugin(s) never used: {', '.join(idle)}. Turn them off: python3 packages.py prune")
+        print(f"hint: {len(idle)} enabled plugin(s) never used: {', '.join(idle)}. Ask the owner, then: python3 packages.py prune <plugin>...")
     if not INDEX.exists():
         print("first run: the catalog is not indexed. Index every skill, loading none: "
               "python3 packages.py kit-starter-pack")
@@ -916,7 +923,7 @@ def main(argv):
     if verb == "use":
         return use(pack, rest)
     if verb == "prune":
-        return prune(dry)
+        return prune(dry, rest)
     if verb == "tools":
         return tools(pack, dry)
     if verb == "stamp":

@@ -44,7 +44,11 @@ class KitTest(unittest.TestCase):
             "pluginUsage": {"ponytail@kit": {"usageCount": 3}, "tuist@kit": {"usageCount": 0}},
             "skillUsage": {"pstack:how": {"usageCount": 1}}}))
         self.assertEqual(K.unused_plugins(), ["tuist@kit"])
-        K.prune(False)
+        K.prune(False)  # bare prune only lists
+        self.assertIs(json.loads((self.h / "settings.json").read_text())["enabledPlugins"]["tuist@kit"], True)
+        with self.assertRaises(SystemExit):
+            K.prune(False, ["ponytail"])  # used: refused
+        K.prune(False, ["tuist"])
         plugins = json.loads((self.h / "settings.json").read_text())["enabledPlugins"]
         self.assertIs(plugins["tuist@kit"], False)
         self.assertIs(plugins["ponytail@kit"], True)
