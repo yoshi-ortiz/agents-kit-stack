@@ -3,7 +3,7 @@
 
   packages.py                          verify: gate both scopes, install nothing
   packages.py kit-starter-pack         index the catalog and publish explicit-only plugins
-  packages.py bigbang [<domain>...]    set up this checkout: index if needed, domains (default core), `mise run stage0`
+  packages.py bigbang [<domain>...]    initialize Git if needed, index the catalog, configure domains (default core), `mise run stage0`
                                        (or `mise install`), start every stdio MCP server once, then verify
   packages.py verify --strict-projection  also fail on nonzero Claude plugin token estimates
   packages.py prune [<plugin>...]      list unused @kit plugins; turn off only the ones named, in ~/.claude/settings.json
@@ -898,7 +898,7 @@ def publish(pack, offered):
     return plugins
 
 
-def domain(pack, names, dry):
+def domain(pack, names, dry, *, root=None):
     """Add a domain's MCP servers to this project, for Claude Code (.mcp.json) and Codex (.codex/config.toml),
     and list its skills. The project configuration scopes the servers to this project."""
     gate([f"{n}: not a domain. Domains: {', '.join(pack.domains)}" for n in names if n.lower() not in pack.domains]
@@ -906,9 +906,13 @@ def domain(pack, names, dry):
     items = [i for n in names for i in pack.domains[n.lower()]]
     servers = list(dict.fromkeys(i[4:] for i in items if i.startswith("mcp:")))
     gate([f"mcp:{s} is not under PACK.md # MCP servers" for s in servers if s not in pack.mcp])
-    skills = resolve(pack, [i for i in items if not i.startswith("mcp:")], offline=True)
-    scope = Scope(False)
-    toml = scope.root / ".codex/config.toml"
+    if dry and not INDEX.exists():
+        print("would list domain skills after indexing the catalog")
+        skills = {}
+    else:
+        skills = resolve(pack, [i for i in items if not i.startswith("mcp:")], offline=True)
+    root = root if root is not None else Scope(False).root
+    toml = root / ".codex/config.toml"
     for s in servers:
         spec = pack.mcp[s]
         is_url = spec.startswith(("http://", "https://"))
@@ -919,17 +923,18 @@ def domain(pack, names, dry):
         if dry:
             continue
         if shutil.which("claude"):
-            run(["claude", "mcp", "remove", "-s", "project", s], capture_output=True, cwd=scope.root)
-            res = run(claude, capture_output=True, text=True, cwd=scope.root)
+            run(["claude", "mcp", "remove", "-s", "project", s], capture_output=True, cwd=root)
+            res = run(claude, capture_output=True, text=True, cwd=root)
             gate([f"claude mcp add {s} failed: {(res.stderr or res.stdout).strip()[-200:]}"] if res.returncode else [])
         old = toml.read_text() if toml.exists() else ""
         if f"[mcp_servers.{s}]" not in old:
             toml.parent.mkdir(exist_ok=True)
             toml.write_text(old + ("\n" if old and not old.endswith("\n") else "") + section)
     if not dry and servers:
-        mcp_json = json.loads((scope.root / ".mcp.json").read_text()) if (scope.root / ".mcp.json").exists() else {}
-        gate([f"{s}: not in {scope.root / '.mcp.json'} after install" for s in servers
-              if shutil.which("claude") and s not in mcp_json.get("mcpServers", {})] +
+        mcp_config = root / ".mcp.json"
+        mcp_json = json.loads(mcp_config.read_text()).get("mcpServers", {}) if mcp_config.exists() else {}
+        gate([f"{s}: not in {mcp_config} after install" for s in servers
+              if shutil.which("claude") and s not in mcp_json] +
              [f"{s}: not in {toml}" for s in servers if f"[mcp_servers.{s}]" not in toml.read_text()])
         print(f"ok: {len(servers)} MCP server(s) for this project: {', '.join(servers)}")
     for name, (repo, _) in skills.items():
@@ -937,14 +942,14 @@ def domain(pack, names, dry):
     return 0
 
 
-def mcp_starts(spec, timeout=60):
+def mcp_starts(spec, timeout=60, *, cwd=None):
     """'' if the stdio server answers an MCP initialize, else the reason (last stderr line)."""
     hello = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
         "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "kit", "version": "1"}}}) + "\n"
     argv = [spec["command"], *spec.get("args", [])]
     try:
         p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                             env={**os.environ, **spec.get("env", {})})
+                             cwd=cwd, env={**os.environ, **spec.get("env", {})})
     except OSError as e:
         return str(e)
     try:
@@ -959,10 +964,22 @@ def mcp_starts(spec, timeout=60):
 
 def bigbang(pack, names, dry):
     """One command per checkout: catalog, domains, the project's stage 0, then proof that its MCP servers start."""
-    root = Scope(False).root
+    names = names or ["core"]
+    gate([f"{n}: not a domain. Domains: {', '.join(pack.domains)}" for n in names if n.lower() not in pack.domains])
+    top = run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    root = Path(top.stdout.strip()) if top.returncode == 0 else Path.cwd()
+    if top.returncode:
+        gate([f"could not open existing Git repository: {top.stderr.strip()}"]
+             if any((p / ".git").exists() or (p / ".git").is_symlink() for p in (root, *root.parents)) else [])
+        if dry:
+            print(f"would initialize Git in {root}")
+        else:
+            result = run(["git", "init", "--quiet"], cwd=root, capture_output=True, text=True)
+            gate([f"could not initialize Git in {root}: {result.stderr.strip()}"] if result.returncode else [])
+            print(f"ok: initialized Git in {root}")
     if not INDEX.exists():
         main(["kit-starter-pack"] + (["--dry-run"] if dry else []))
-    domain(pack, names or ["core"], dry)
+    domain(pack, names, dry, root=root)
     mise = next((root / n for n in ("mise.toml", ".mise.toml") if (root / n).is_file()), None)
     if mise:
         import tomllib
@@ -971,12 +988,13 @@ def bigbang(pack, names, dry):
         if not dry:
             gate([] if shutil.which("mise") else ["mise not found; kit does not install runtimes"])
             gate([f"{shlex.join(cmd)} failed"] if run(cmd, cwd=root).returncode else [])
-    servers = json.loads((root / ".mcp.json").read_text()).get("mcpServers", {}) if (root / ".mcp.json").exists() else {}
-    stdio = {n: s for n, s in servers.items() if s.get("command")}
     if dry:
-        print(f"would start {len(stdio)} stdio MCP server(s): {', '.join(stdio) or 'none'}")
+        print("would check configured stdio MCP servers and run Kit verification")
         return 0
-    gate([f"MCP {n} does not start: {why}" for n, s in stdio.items() if (why := mcp_starts(s))])
+    config = root / ".mcp.json"
+    servers = json.loads(config.read_text()).get("mcpServers", {}) if config.exists() else {}
+    stdio = {n: s for n, s in servers.items() if s.get("command")}
+    gate([f"MCP {n} does not start: {why}" for n, s in stdio.items() if (why := mcp_starts(s, cwd=root))])
     print(f"ok: {len(stdio)} stdio MCP server(s) start: {', '.join(stdio) or 'none'}")
     return verify(pack)
 

@@ -5,6 +5,7 @@ import sys
 import tempfile
 import tomllib
 import unittest
+from contextlib import chdir
 from pathlib import Path
 from unittest import mock
 
@@ -58,6 +59,41 @@ class KitTest(unittest.TestCase):
         self.assertEqual(K.mcp_starts({"command": sys.executable, "args": ["-c", ok]}), "")
         bad = K.mcp_starts({"command": sys.executable, "args": ["-c", "raise SystemExit('No module named mcp.server.fastmcp')"]})
         self.assertIn("fastmcp", bad)
+
+    def test_bigbang_bootstraps_a_project_without_git(self):
+        target = self.h / "greenfield"
+        target.mkdir()
+        index = self.h / "index.json"
+        pack = mock.Mock(domains={"core": ["mcp:example"]}, mcp={"example": "example-server"})
+        real_run = K.run
+
+        def run(cmd, **kwargs):
+            if cmd[:3] == ["claude", "mcp", "add"]:
+                root = kwargs["cwd"]
+                self.assertEqual(root, target.resolve())
+                self.assertTrue((root / ".git").is_dir())
+                (root / ".mcp.json").write_text(json.dumps({"mcpServers": {
+                    "example": {"command": "example-server"}}}))
+                return subprocess.CompletedProcess(cmd, 0)
+            if cmd[:3] == ["claude", "mcp", "remove"]:
+                return subprocess.CompletedProcess(cmd, 0)
+            return real_run(cmd, **kwargs)
+
+        with (chdir(target), mock.patch.object(K, "INDEX", index),
+              mock.patch.object(K, "main") as starter, mock.patch.object(K, "resolve", return_value={}),
+              mock.patch.object(K, "run", side_effect=run), mock.patch.object(K.shutil, "which", return_value=True),
+              mock.patch.object(K, "verify", return_value=0), mock.patch.object(K, "mcp_starts", return_value="") as start):
+            self.assertEqual(K.bigbang(pack, [], True), 0)
+            self.assertEqual(list(target.iterdir()), [])
+            start.assert_not_called()
+            starter.assert_called_once_with(["kit-starter-pack", "--dry-run"])
+            index.touch()
+            existing = target / "notes.md"
+            existing.write_text("Existing requirements")
+            self.assertEqual(K.bigbang(pack, [], False), 0)
+            self.assertEqual(existing.read_text(), "Existing requirements")
+            self.assertIn('[mcp_servers.example]', (target / ".codex/config.toml").read_text())
+            start.assert_called_once_with({"command": "example-server"}, cwd=target.resolve())
 
     def test_unused_and_prune_keep_used_plugins(self):
         (self.h / "settings.json").write_text(json.dumps({"enabledPlugins": {
