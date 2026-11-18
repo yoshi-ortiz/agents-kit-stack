@@ -12,3 +12,17 @@ Kit and Bigbang make a checkout ready to work while keeping agent context small.
 
 Keep the skill instructions short and put repeatable operations in code. Use
 the `slop` branch to recover the rationale behind previous work.
+
+## Planned skill goals
+
+- **Bigbang** establishes a convention for starting and evolving a project.
+  Verbatim user requirements first, then refine the user instincts understanding of an
+  umbrella domain as work proceeds. Use that understanding to design a repository
+  where each domain's code, assets, and configuration have a clear home.
+  Link requirements to roadmap items and use Shot outcomes to track
+  burndown against those requirements. Keep requirements, roadmap state, and
+  decisions that change the repository structure in version control so the
+  layout stays understandable as the project grows.
+- **deterMDinistic** audits Markdown documents and fixes inconsistent
+  structure so tools can read values directly. It preserves the document's
+  meaning and flags ambiguous values for review.
