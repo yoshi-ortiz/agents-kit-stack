@@ -35,6 +35,27 @@ probability is not pixel-identical output. Cheap representative checks may
 precede expensive passes; shipping paths favor parsers, gates, and procedural
 renderers over unverified model prose.
 
+## Reinforcement-learning interpretation
+
+Every skill keeps its own domain language and output adapter, while the shared
+Shot contract provides one LLM reinforcement-learning observation model:
+
+| Shot concept | RL concept | Boundary |
+| --- | --- | --- |
+| Skill adapter + project + tools | Environment | Domain behavior remains owned by the skill |
+| Scope + compiled context | Observable state | Only admitted evidence; no hidden reasoning |
+| Invocation path | Policy under evaluation | Deterministic declarations constrain the policy |
+| Prompt, tool calls, passes | Actions and trajectory | Ordered, correlated, and replayable |
+| Deliverable | Terminal artifact | Domain-typed by the skill adapter |
+| Rank, sentiment, correction, acceptance | Reward-signal vector | Independent labels; never silently averaged |
+| Hard vetoes and proof gates | Constraints | Cannot be compensated by a positive preference signal |
+| Tokens, duration, discarded output | Cost signals | Compared beside quality, not subtracted into a magic score |
+| Next Shot or declaration change | Offline policy improvement | Reviewed evidence proposes changes; it does not update model weights live |
+
+Shot review therefore evaluates a trajectory, not only its final artifact.
+Skill-specific inference may derive the next bounded action from the outcome,
+but the canonical record preserves every independent signal and its evidence.
+
 ## Shot record
 
 Every shot writes one **shot record**. JSON (or equivalent structured data) is
@@ -196,7 +217,7 @@ above.
 | Visual verification | [first/aesthetic/references/verification.md](first/aesthetic/references/verification.md) |
 | Sentiment / rank shape | [first/aesthetic/references/sentiment-analysis.md](first/aesthetic/references/sentiment-analysis.md) |
 | Context compiler | [docs/SPEC/INFERENCE_CONTEXT_COMPILER.md](docs/SPEC/INFERENCE_CONTEXT_COMPILER.md) |
-| Dogfood project state | `spec/`, `design/`, `shots/`, `moodboards/` (dev fog, not skill payload) |
+| Eat-your-own-food project state | `spec/`, `design/`, `shots/`, `moodboards/` (dev fog, not skill payload) |
 | Shot log convention | `.audit/shots/` under project root |
 
 Vocabulary stubs: [UBIQUITOUS_LANGUAGE.md](UBIQUITOUS_LANGUAGE.md) (Repo-Dev;

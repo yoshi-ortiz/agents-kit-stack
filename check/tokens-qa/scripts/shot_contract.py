@@ -7,7 +7,11 @@ CURRENT_VERSION = 2
 REQUIRED = ("shot_id", "scope", "inputs", "compute", "output",
             "provenance", "user_feedback")
 TOP_LEVEL = REQUIRED + ("version", "gates", "findings")
-INPUTS = ("prompt_hash", "tools", "corpus_refs", "stack", "request", "target_skill")
+# `admitted_context` is the surfaces a shot actually touched. `shot_view` has
+# always read it; this tuple has always refused it, so a valid shot could not
+# carry one and `context.status` could only ever say not_observed.
+INPUTS = ("prompt_hash", "tools", "corpus_refs", "stack", "request",
+          "target_skill", "admitted_context")
 COMPUTE = ("model", "harness", "started_at", "duration_ms", "tokens", "passes")
 FEEDBACK = ("status", "sentiment", "correction", "rank", "evidence", "observed_at")
 PROVENANCE = ("corpus", "procedural", "fetched", "inference")
@@ -107,6 +111,8 @@ def validate_v2(record: object, where: str = "$") -> dict:
         require_string(ref.get("path"), f"{where}.inputs.corpus_refs[{index}].path")
     if "stack" in inputs:
         require_string_list(inputs["stack"], f"{where}.inputs.stack")
+    if "admitted_context" in inputs:
+        require_string_list(inputs["admitted_context"], f"{where}.inputs.admitted_context")
     if "request" in inputs:
         require_string(inputs["request"], f"{where}.inputs.request")
     if "target_skill" in inputs:

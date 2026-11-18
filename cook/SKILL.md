@@ -6,7 +6,7 @@ description: Dev-only. Run this repository's skills against a throwaway project 
 
 # Cook
 
-Food Product development: run the skill the way a user runs it, then check the page,
+Eat your own food development: run the skill the way a user runs it, then check the page,
 not the exit code.
 
 ## Who "the user" is
@@ -55,13 +55,20 @@ layout with a session here to test against. Every other agent app arrives
 through `--session`, which is a path you can verify, rather than a guess about
 somebody's filesystem that silently matches nothing.
 
+The unit of evidence is one invocation, not the latest marker in a transcript.
+Cook must correlate that invocation's start and end with retained constraints,
+admitted/excluded context, artifacts, companion session, Shot ID, Tokens QA
+table, and feedback. Session-object parsing belongs behind the `shot-audit`
+seam; context decontamination belongs to `moses`; Cook joins their outputs and
+does not duplicate either contract.
+
 Exit 0 means a user opening that URL sees a rankable screen. Exit 1 names
 what they would see instead. Exit 2 means the round was refused before it ran.
 
 ## The two rules
 
 **A project root inside this repository is refused, with no flag to open it.**
-A Food Product round writes corpus, ledger, renders, and companion sessions. Writing
+An eat-your-own-food round writes corpus, ledger, renders, and companion sessions. Writing
 them beside the skill source that produced them puts the **skill package** and
 one project's **shot tests** in one tree, and an agent reading that tree cannot
 tell which it is in. That is the context derail in the root `CONTEXT.md`,
@@ -101,7 +108,7 @@ while failing the other.
 python3 cook/cook.py feedback --project-root .
 ```
 
-Eating your own food is not only checking that the page renders. It is checking
+Eat your own food is not only checking that the page renders. It is checking
 the render against the brief and against what the user told you, which is why
 this reads two sources and compares them:
 
@@ -164,7 +171,7 @@ then `systematic-debugging`. Give it the exact failing Cook command and keep
 that command as the feedback loop. A generic button, a zero exit code, or a
 plausible theory is not evidence that the visible workflow works.
 
-## Finish the Food Product release
+## Finish the eat-your-own-food release
 
 After Cook is green, run the affected tests and `python3 tools/check.py`, then
 review the diff. Report the exact checks and ask the user to confirm commit and

@@ -2,7 +2,7 @@ import urllib.error
 import io
 import contextlib
 #!/usr/bin/env python3
-"""Tests for the Food Product loop.
+"""Tests for the eat-your-own-food loop.
 
 The loop's own first version passed against the broken state it existed to
 catch, so the case that matters most here is `test_an_unreadable_page_fails`:

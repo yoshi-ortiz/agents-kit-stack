@@ -49,6 +49,61 @@ def now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def parse_contexts(specs: list[str]) -> dict[str, tuple[str, ...]]:
+    """`["api=src/api/", "ui=src/ui/,web/"]` -> `{"api": (...), "ui": (...)}`.
+
+    The project names its own contexts. This package never learns a folder
+    layout: QA.md owns the veto, the caller owns the map. A malformed spec is
+    refused rather than dropped, because a context silently missing from the
+    map is a derail that silently cannot fire.
+    """
+    contexts: dict[str, tuple[str, ...]] = {}
+    for spec in specs:
+        name, sep, prefixes = spec.partition("=")
+        if not (sep and name.strip() and prefixes.strip()):
+            raise Refused(f"--context {spec!r}: expected NAME=prefix[,prefix]")
+        contexts[name.strip()] = tuple(
+            p.strip() for p in prefixes.split(",") if p.strip())
+    return contexts
+
+
+def scope_finding(paths: list[str], allowed: tuple[str, ...]) -> list[dict]:
+    """`[scope_breach]` when the pass wrote outside its declared scope.
+
+    `scope` is the one bounded task a Shot claims. Nothing compared that claim
+    against what the pass actually wrote, so a run could declare a narrow scope,
+    edit half the tree, and still report no veto. The caller declares the
+    allowed prefixes; declaring none means there is nothing to check, not that
+    everything is permitted.
+    """
+    if not allowed:
+        return []
+    outside = sorted(p for p in paths if not p.startswith(tuple(allowed)))
+    if not outside:
+        return []
+    return [{"id": "scope_breach", "status": "present",
+             "evidence": (f"wrote {len(outside)} path(s) outside the declared scope "
+                          f"({', '.join(allowed)}): " + ", ".join(outside[:4]))}]
+
+
+def derail_finding(paths: list[str],
+                   contexts: dict[str, tuple[str, ...]]) -> list[dict]:
+    """`[context_derail]` when one pass wrote to two declared contexts.
+
+    A path no context claims belongs to none: a shot is not derailed by a
+    file nobody said was a boundary.
+    """
+    hit = {name: sorted(p for p in paths if p.startswith(tuple(prefixes)))
+           for name, prefixes in contexts.items()}
+    hit = {name: found for name, found in hit.items() if found}
+    if len(hit) < 2:
+        return []
+    where = "; ".join(f"{name} ({', '.join(found[:3])})"
+                      for name, found in sorted(hit.items()))
+    return [{"id": "context_derail", "status": "present",
+             "evidence": f"one pass wrote {len(hit)} declared contexts -- {where}"}]
+
+
 def cmd_record(args):
     if args.output:
         raise Refused('--output was removed. Pass --inline "<text>" for an inline '
@@ -61,21 +116,35 @@ def cmd_record(args):
     else:
         output, size = shot_io.inline_output(args.inline)
     shot_id = uuid.uuid4().hex
+    contexts = parse_contexts(args.context or [])
+    changed = [p.strip() for p in (args.changed or "").split(",") if p.strip()]
+    scope_paths = tuple(p.strip() for p in (args.within or "").split(",")
+                        if p.strip())
+    inputs = {"request": request, "target_skill": args.skill,
+              "corpus_refs": [], "prompt_hash": sha256(request), "tools": []}
+    if changed:
+        inputs["admitted_context"] = changed
     record = validate({
         "version": 2, "shot_id": shot_id, "scope": args.scope or args.skill,
-        "inputs": {"request": request, "target_skill": args.skill,
-                   "corpus_refs": [], "prompt_hash": sha256(request), "tools": []},
+        "inputs": inputs,
         "compute": {"model": args.model, "harness": args.harness,
                     "started_at": now(), "duration_ms": 0,
                     "tokens": {"input": estimate(request),
                                "output": math.ceil(size / 4),
                                "profile": "utf8_bytes_div4_ceil_v1"}},
         "output": output, "provenance": "inference",
-        "user_feedback": {"status": "pending"}, "findings": [],
+        "user_feedback": {"status": "pending"},
+        "findings": (scope_finding(changed, scope_paths)
+                     + derail_finding(changed, contexts)),
     })
     target = Path.cwd() / ".audit" / "shots" / f"{shot_id}.json"
     shot_io.create_shot(target, record)
-    return 0, {"path": str(target), "shot_id": shot_id, "artifacts": digests}, str(target)
+    # The table, not the path. `record` used to print where it wrote, so
+    # reading the numbers it had just computed took a second command and
+    # nobody ran it.
+    return 0, {"path": str(target), "shot_id": shot_id, "artifacts": digests,
+               "findings": [f["id"] for f in record["findings"]]}, \
+        table(metrics(record), None) + f"\n{target}"
 
 
 def read_pair(base_path: str, cand_path: str | None):
@@ -150,6 +219,16 @@ def parse(argv):
     rec.add_argument("--scope", default="")
     rec.add_argument("--model", default="unknown")
     rec.add_argument("--harness", default="unknown")
+    rec.add_argument("--changed", default="",
+                     help="comma-separated paths this shot wrote, as the caller "
+                          "observed them (absent: context.status not_observed)")
+    rec.add_argument("--within", default="", metavar="prefix[,prefix]",
+                     help="paths the bounded task was allowed to write; anything "
+                          "outside is scope_breach (absent: not checked). Not "
+                          "--scope-paths: --scope would silently abbreviate it")
+    rec.add_argument("--context", action="append", metavar="NAME=prefix[,prefix]",
+                     help="declare one context boundary; repeat for each. Two "
+                          "written in one pass is context_derail")
     rec.set_defaults(run=cmd_record)
 
     obs = sub.add_parser("observe", parents=[common], help="read one Shot")

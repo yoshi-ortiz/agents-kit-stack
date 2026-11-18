@@ -86,6 +86,31 @@ repository.
 | **Output adapter** | Skill-specific typing of `output` (`graphic`, `document`, `bundle`, etc.) | Format, renderer |
 | **Observation log** | Per-prompt-scope structured compute metadata; canonical JSON | Telemetry, metrics |
 | **Minimum project surface** | Corpus root (optional), shot log dir, scope, user feedback channel | Harness, scaffold |
+| **Environment** (Shot) | The skill adapter, bounded project state, and tools with which one rollout interacts | Whole repository, agent host |
+| **Rollout** | The RL reading of one Shot from observable state through actions to a terminal artifact and outcome | Whole chat, model response |
+
+## Deterministic documents
+
+| Term | Definition | Aliases to avoid |
+| --- | --- | --- |
+| **deterMDinistic** | The Genesis contract for declared, replayable Markdown code and table state; `detmd` is its lean Python command | Documentation generator, notebook framework |
+| **Deterministic mirror** | An opt-in Markdown block or table rendered from a named authority through typed normalized state and guarded against drift | Copied example, duplicate source of truth |
+| **Authority direction** | The declaration of which side may be authored and which side is generated; codebase-to-Markdown is the default | Bidirectional sync, inferred ownership |
+| **Normalized table** | Ordered columns and typed rows with stable identity, from which pipe-table, TSV, and JSONB-compatible views are rendered | Markdown text, spreadsheet |
+| **Link table** | Rows of stable foreign-key pairs representing a many-to-many relationship | Delimited list cell, embedded relation |
+| **Derived value** | A value produced by a declared deterministic operation over sourced rows, never typed or estimated by the agent | Inference, plausible value |
+
+## Comparison boundaries
+
+| Term | Definition | Aliases to avoid |
+| --- | --- | --- |
+| **Zero-client proof** | Local eat-your-own-food execution of the real path without a deployed customer, external account, or public service as its driver | Offline-only benchmark, isolated benchmark |
+| **Public benchmark** | A version-pinned, scope-labeled comparison against an external reference such as `ponytail` or `mattpocock/skills`; evidence, not runtime state | Product dependency, release proof |
+| **Local release gate** | A reproducible contract, test, replay, or user-visible result that can decide whether this repository ships | External score, model-only result |
+| **Trajectory** | The ordered prompt, tool, pass, artifact, and feedback events correlated to one rollout | Hidden reasoning, transcript dump |
+| **Reward-signal vector** | Independent user and outcome labels such as rank, sentiment, correction, acceptance, cost, and constraint status | Average score, latent taste, scalar reward |
+| **Policy under evaluation** | The invocation path, compiled declarations, and tool strategy that produced a rollout | Model weights, autonomous authority |
+| **Offline policy improvement** | A reviewed change proposed from recorded trajectories and held-out evidence | Online training, automatic doctrine mutation |
 
 ## Inference outcomes
 

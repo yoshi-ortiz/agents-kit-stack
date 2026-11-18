@@ -5,6 +5,13 @@ stabilizes; `QA.md` on `main` links here.
 
 JSON is canonical. The current schema is version 2. Example:
 
+The record is also the canonical LLM reinforcement-learning trajectory
+observation. `inputs` and scope describe observable state, `compute` describes
+actions and passes, `output` names the terminal artifact, `user_feedback`
+stores independent reward labels, and gates/findings store constraints. This
+interpretation adds no synthetic scalar reward and does not change the version
+2 wire shape.
+
 ```json
 {
   "version": 2,

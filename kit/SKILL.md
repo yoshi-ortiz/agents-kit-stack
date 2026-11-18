@@ -19,6 +19,11 @@ Never ask which. Sync is idempotent, so there is no separate Install mode to
 pick wrong: running it where the harness already exists syncs it instead of
 breaking it. Releasing this package is Repo-Dev work and is not a mode here.
 
+Keep installation concise and permissions proportionate. A local `cd` or pull
+does not publish an uncommitted skill; Genesis doctrine reaches consumers only
+through a reviewed channel release that Kit syncs. A dev install is a local
+testing symlink, not publication.
+
 Everything below the two modes is reference. Read one when the task names it.
 
 One collection, one harness. `collection.toml` records which skills this

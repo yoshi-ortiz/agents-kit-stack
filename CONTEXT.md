@@ -171,6 +171,71 @@ fog list and `KEEP_ALWAYS` is the exception list, and that file is the truth
 here, not this paragraph — and `tools/CONTEXT.md`, which explains why
 generating `main` beats curating it.
 
+## Eat your own food: ownership boundaries
+
+**Eat your own food** means this repository runs its reusable SDLC modules
+against itself. The companion idiom is **drink your own champagne**: prove the
+real path with evidence. It is a zero-client **walk-the-walk** loop, not a
+canned fixture, and it never makes one skill's project state into package
+doctrine. A Cook run may use this checkout as its consumer, provided skill
+source, Repo-Dev records, and project-generated Shot state remain
+distinguishable.
+
+### Zero-client is not benchmark-isolated
+
+**Zero-client** describes the execution boundary: the proof must work without
+requiring a deployed customer, an external application account, or a public
+service to drive the live path. It does **not** prohibit public benchmarking.
+When useful, agents may compare selected skills with public references such as
+`ponytail` and `mattpocock/skills`, provided each comparison is version-pinned,
+scope-labeled, and recorded as external evidence. The comparison must not make
+either project a runtime dependency, silently copy its doctrine, or turn a
+public score into a release gate without a local reproducible check.
+
+| Boundary | Allowed use | Forbidden confusion |
+| --- | --- | --- |
+| Zero-client proof | Run the real skill and companion path locally against this repository | Calling a public benchmark service the product's client |
+| Public benchmark | Compare bounded capabilities, ergonomics, cost, or output quality against `ponytail` or `mattpocock/skills` | Treating an external score as local proof or importing another project's doctrine |
+| Local release gate | Require deterministic contracts, tests, replay, and user-visible evidence | Gating on an unpinned, irreproducible, or model-only comparison |
+
+The reusable path is composed, not collapsed into Cook:
+
+| Module | Owns | Does not own |
+| --- | --- | --- |
+| `moses` | session scope and context decontamination, especially package-artifact context versus domain/MCP Shot context | user sentiment, visual ranking, or release publication |
+| `tokens-qa` | universal Shot observation and presentation of its evidence table | Claude-transcript parsing or skill-specific project ledgers |
+| `shot-audit` seam | adapters for supported agent session objects, negative sentiment, and corrections | changing a Shot or deciding acceptance |
+| tokens ontology | names and boundaries for context-token declarations and their measurements | live inference control by a learned score |
+| `deterMDinistic` | deterministic Markdown/context declarations as a release package | mutable Repo-Dev history or creative corpus evidence |
+
+Cook correlates one invocation across its session interval, retained user
+constraints, admitted and excluded context, generated artifacts, companion
+session, Shot ID, presented QA table, and later feedback. It is an
+orchestrator and evidence join, not the owner of those domain rules.
+
+**Assistant apps** is the self-made, lean companion artifact: a live web UI
+over durable state. Genesis owns its reusable platform contract; Aesthetic owns
+the ranking, brief, and corpus-tagging adapter. It is not a general application
+framework and does not absorb a skill's domain rules.
+
+All skill inference and Shot review share an **LLM reinforcement-learning
+observation domain**. A Shot is one rollout; its compiled context is the
+observable state, tool calls and generated artifacts are actions, and user
+feedback plus deterministic gates form a multi-signal outcome. This repository
+records trajectories for evaluation and offline policy improvement. It does
+not imply online model training, hidden-reasoning capture, or one scalar reward
+that erases rank, sentiment, correction, cost, and hard constraints.
+
+The program has three **Program Epics**: Genesis, Cook, and Aesthetic. A
+**Sprint Group** is an ordered wave of independently reviewable atomic rows;
+there are at most two, quick deterministic seams first and long data/inference
+systems second. Agents build one atomic row at a time.
+
+An **Agent Session Group** assigns one Sprint Group to isolated agent sessions
+with disjoint atomic rows, declared dependencies, and one integration gate.
+Sessions may run concurrently, but they do not share a dirty worktree or merge
+their own unreviewed cross-module changes.
+
 ## Channels
 
 `main` is the stable channel: what an agent gets by default. `alpha` carries the

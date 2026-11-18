@@ -12,6 +12,12 @@ generated:
 
 Use the deterministic preference brief before proposing or critiquing art direction. This is element-level descriptive analysis, not a latent taste score and not model training.
 
+In the universal Shot contract, these fields are a multi-signal RL outcome for
+one graphics rollout. The mapping does not change their Aesthetic meaning:
+rank, sentiment, lifecycle, missingness, correction, and hard constraints stay
+independent. They may guide the next bounded Shot but never become one scalar
+reward or an automatic model update.
+
 ## Independent fields
 
 | Field | Question answered |

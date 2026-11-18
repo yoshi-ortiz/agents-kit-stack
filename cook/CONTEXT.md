@@ -1,13 +1,13 @@
 ---
 purpose: run this repository's own skills against a throwaway project and assert what the user would see, and whether the run absorbed what they said
-admits: the Food Product loop, its tests, the user-feedback read-back, diagnostic handoff, and release confirmation
+admits: the eat-your-own-food loop, its tests, the user-feedback read-back, diagnostic handoff, and release confirmation
 refuses: skill payload, design project state, anything a published tree carries
 max_file_bytes: 12000
 ---
 
 # Cook
 
-Food Product development. `cook` runs a skill the way a user runs it and checks the
+Eat your own food development. `cook` runs a skill the way a user runs it and checks the
 **visible** outcome, because every gate in this repository so far checks an
 exit code, and an exit code is what the companion bug hid behind: `open`
 returned a URL, returned zero, and served an empty page.
@@ -35,4 +35,12 @@ test** are the same directory, which is the context derail the root
 document.
 
 So `cook` refuses the repository root as a project root. There is no flag for
-it. A Food Product round runs in a scratch tree or it does not run.
+it. An eat-your-own-food round runs in a scratch tree or it does not run.
+
+Cook is the composition seam for eat-your-own-food validation, not the implementation home for
+the composed rules. It must join one invocation's session interval, retained
+constraints, admitted/excluded context, generated artifact, companion session,
+Shot ID, Tokens QA table, and user feedback. `moses` owns decontamination,
+Tokens QA owns universal Shot observation, and `shot-audit` owns supported
+session-object adapters. The repository itself is a valid consumer when its
+source, Repo-Dev records, and scratch-project state stay visibly separate.

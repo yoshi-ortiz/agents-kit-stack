@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the Aesthetic Food Product in a throwaway project and check its screen.
+"""Run the Aesthetic eat-your-own-food loop in a throwaway project and check its screen.
 
     python3 cook/cook.py doctor --project-root /tmp/cook-run
     python3 cook/cook.py run    --project-root /tmp/cook-run
@@ -32,11 +32,11 @@ STARTUP_POLL = 0.1
 
 
 def check_not_the_repo(project_root: Path) -> None:
-    """Keep Food Product project state outside the skill source tree."""
+    """Keep eat-your-own-food project state outside the skill source tree."""
     resolved = project_root.resolve()
     if resolved == REPO or REPO in resolved.parents:
         raise CookError(
-            f"{resolved} is inside {REPO}. A Food Product round writes project state -- "
+            f"{resolved} is inside {REPO}. An eat-your-own-food round writes project state -- "
             "corpus, ledger, renders, companion sessions -- and writing it here puts "
             "one project's work in the same tree as the skill source that produced "
             "it, which is the contamination cook exists to catch. Pass a "
@@ -192,20 +192,20 @@ def run(project_root: Path) -> dict:
     preview = project_root / "cook-proposal.png"
     source_preview = next(iter(sorted(REPO.glob("moodboards/**/*.png"))), None)
     if source_preview is None:
-        raise CookError("the repository moodboards hold no PNG for the Food Product proposal")
+        raise CookError("the repository moodboards hold no PNG for the eat-your-own-food proposal")
     shutil.copy2(source_preview, preview)
     steps = (
         ("init", "--source-root", str(REPO / "moodboards"),
          "--profiles", "art-direction"),
-        ("open", "--status", "Cook Food Product round"),
+        ("open", "--status", "Eat your own food round"),
         ("decide", "--element", "cook.round.rankable", "--verdict", "proposed",
-         "--stars", "0", "--evidence", "agent: Cook Food Product proposal",
+         "--stars", "0", "--evidence", "agent: Eat your own food proposal",
          "--source", "agent", "--preview", preview.name,
-         "--title", "Cook Food Product proposal",
+         "--title", "Eat your own food proposal",
          "--description", "A real proposal row used to prove ranking works.",
          "--implemented", "Published with a preview and an unscored rank control."),
         ("article", "--out", str(screen), "--cohort", "cook.round.rankable",
-         "--round-label", "Cook Food Product proposal",
+         "--round-label", "Eat your own food proposal",
          "--asks", "How strong is this proposal?"),
         ("publish", "--screen", str(screen)),
     )
