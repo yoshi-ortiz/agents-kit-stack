@@ -1,11 +1,13 @@
 <div align="center">
 
-![Cyber Skills · Intelligent + Easy Prompts](assets/cover.png)
+<h1>Yoshi Stack</h1>
+
+![Yoshi Stack](assets/cover.png)
 
 **Tested prompts created by a silly deterministic nerd**
 
-[![release](https://img.shields.io/badge/release-0.9--beta-8b5cf6?style=flat-square&labelColor=1e1b4b)](https://github.com/yoshi-ortiz/cyber-skills/releases)
-[![repo](https://img.shields.io/badge/repo-yoshi--ortiz%2Fcyber--skills-0ea5e9?style=flat-square&labelColor=1e1b4b)](https://github.com/yoshi-ortiz/cyber-skills)
+[![release](https://img.shields.io/badge/release-0.9--beta-8b5cf6?style=flat-square&labelColor=1e1b4b)](https://github.com/yoshi-ortiz/agents-kit-stack/releases)
+[![repo](https://img.shields.io/badge/repo-yoshi--ortiz%2Fagents--kit--stack-0ea5e9?style=flat-square&labelColor=1e1b4b)](https://github.com/yoshi-ortiz/agents-kit-stack)
 [![prompts](https://img.shields.io/badge/prompts-2%20stable%20%C2%B7%204%20experiments-6366f1?style=flat-square&labelColor=1e1b4b)](#-collection)
 [![python](https://img.shields.io/badge/python-stdlib%20only-16213e?style=flat-square&labelColor=1e1b4b)](#-experiments)
 [![cybersecurity tested](https://img.shields.io/badge/cybersecurity%20tested-pending-f59e0b?style=flat-square&labelColor=44403c)](#-experiments)
@@ -25,7 +27,7 @@ prompt actually does, and walks you through installing the ones you want.
 
 ```
 What's this plugin for? Should I install it?
-https://github.com/yoshi-ortiz/cyber-skills
+https://github.com/yoshi-ortiz/agents-kit-stack
 ```
 
 A **skill prompt** is a set of written instructions your AI agent reads before
@@ -93,13 +95,13 @@ clone, no folders, nothing to configure.
 **Everything, experiments included:**
 
 ```bash
-npx skills add https://github.com/yoshi-ortiz/cyber-skills/tree/dev -g --all
+npx skills add https://github.com/yoshi-ortiz/agents-kit-stack/tree/dev -g --all
 ```
 
 **Only the stable ones:**
 
 ```bash
-npx skills add yoshi-ortiz/cyber-skills -g --all
+npx skills add yoshi-ortiz/agents-kit-stack -g --all
 ```
 
 Then **start a new chat**. AI apps read their skills when a conversation
@@ -121,7 +123,7 @@ finds them. Keep the `-g`. Each flag below narrows one part of that.
 | `-l`, `--list` | Print what is here, install nothing |
 | `-y`, `--yes` | Skip the confirmation prompt on its own |
 
-A plain `yoshi-ortiz/cyber-skills` reads the `main` branch, which carries the
+A plain `yoshi-ortiz/agents-kit-stack` reads the `main` branch, which carries the
 stable prompts only. The `/tree/dev` URL reads the development branch, which
 carries those plus everything under EXPERIMENTS.
 
