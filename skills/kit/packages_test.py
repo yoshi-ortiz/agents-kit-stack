@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -92,6 +93,68 @@ class KitTest(unittest.TestCase):
         f.write_text("x")
         with mock.patch.object(K, "__file__", str(f)):
             self.assertIn("uncommitted kit change", K.source_drift()[0])
+
+    def test_codex_deduplication_preserves_manual_settings_and_is_reversible(self):
+        home = self.h / "codex"
+        home.mkdir()
+        config = home / "config.toml"
+        base = (f'[marketplaces.kit]\nsource_type = "local"\nsource = "{K.MARKET}"\n'
+                '[plugins."pub@kit"]\nenabled = true\n')
+        manual = self.h / ".agents/skills/pub-manual/SKILL.md"
+        config.write_text(base + f'[[skills.config]]\npath = "{manual}"\nenabled = true\n')
+        for name in ("owned", "manual", "foreign"):
+            source = K.MARKET / "plugins/pub/skills" / name / "SKILL.md"
+            source.parent.mkdir(parents=True)
+            source.touch()
+            shortcut = self.h / ".agents/skills" / f"pub-{name}" / "SKILL.md"
+            shortcut.parent.mkdir(parents=True)
+            shortcut.write_text(f"Open `~/{source.relative_to(self.h)}`.")
+            if name != "foreign":
+                (shortcut.parent / ".kit-stub").write_text("kit-portable-v1\n")
+        with mock.patch.dict(K.os.environ, {"CODEX_HOME": str(home)}), mock.patch.object(K.shutil, "which", return_value="codex"):
+            K.dedupe_codex()
+            first = config.read_text()
+            entries = tomllib.loads(first)["skills"]["config"]
+            self.assertEqual([(Path(e["path"]).parent.name, e["enabled"]) for e in entries],
+                             [("pub-manual", True), ("pub-owned", False)])
+            K.dedupe_codex()
+            self.assertEqual(config.read_text(), first)
+            config.write_text(first.replace('[plugins."pub@kit"]\nenabled = true',
+                                            '[plugins."pub@kit"]\nenabled = false'))
+            K.dedupe_codex()
+            self.assertEqual(tomllib.loads(config.read_text())["skills"]["config"],
+                             [{"path": str(manual), "enabled": True}])
+
+    def test_dev_sync_pushes_only_an_allowed_branch_and_links_after_push(self):
+        repo, remote = self.h / "repo", self.h / "remote.git"
+        subprocess.run(["git", "init", "-q", "-b", "dev", str(repo)], check=True)
+        subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+        git = ["git", "-C", str(repo)]
+        for name in ("kit", "bigbang", "dev-sync"):
+            skill = repo / "skills" / name / "SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text(name)
+        script = repo / "skills/kit/packages.py"
+        script.touch()
+        subprocess.run([*git, "add", "skills"], check=True)
+        subprocess.run([*git, "-c", "user.name=Kit Test", "-c", "user.email=test@example.com",
+                        "commit", "-qm", "initial"], check=True)
+        subprocess.run([*git, "remote", "add", "origin", str(remote)], check=True)
+        link = self.h / ".agents/skills/dev-sync"
+        with mock.patch.object(K, "__file__", str(script)), mock.patch.object(K, "main", return_value=0) as refresh:
+            subprocess.run([*git, "switch", "-qc", "main"], check=True)
+            with self.assertRaises(SystemExit):
+                K.dev_sync([], False)
+            self.assertEqual(K.dev_sync(["--allow-main"], True), 0)
+            refresh.assert_not_called()
+            self.assertFalse(link.exists())
+            subprocess.run([*git, "switch", "-q", "dev"], check=True)
+            self.assertEqual(K.dev_sync([], False), 0)
+            refresh.assert_called_once_with(["kit-starter-pack"])
+            self.assertEqual(link.resolve(), (repo / "skills/dev-sync").resolve())
+            pushed = subprocess.check_output(["git", "-C", str(remote), "for-each-ref",
+                                              "--format=%(refname)", "refs/heads"], text=True)
+            self.assertEqual(pushed.splitlines(), ["refs/heads/dev"])
 
 
 if __name__ == "__main__":

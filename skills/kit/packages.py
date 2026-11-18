@@ -8,6 +8,7 @@
   packages.py verify --strict-projection  also fail on nonzero Claude plugin token estimates
   packages.py prune [<plugin>...]      list unused @kit plugins; turn off only the ones named, in ~/.claude/settings.json
   packages.py portable                refresh shared skill commands from the published catalog
+  packages.py dev-sync [--allow-main]  push committed skills and refresh this machine
   packages.py use <skill>...           print a catalog skill from the index, so it enters the context only when called
   packages.py tools                    deny PACK.md `# Tools` in ~/.claude/settings.json, so no session loads them
   packages.py domain <domain>...       add the domain's MCP servers to this project and list its /publisher:skill commands
@@ -32,6 +33,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -45,7 +47,7 @@ TIMEOUT = 600  # seconds per command
 SLASH = Path.home() / ".claude/skills"  # where the earlier layout wrote stubs
 MARKET = Path.home() / ".cache/kit/marketplace"
 MARKET_NAME = "kit"
-SELF = {"kit", "kit-starter-pack", "bigbang"}  # installed from this package's own repo, not from a catalog row
+SELF = {"kit", "kit-starter-pack", "bigbang", "dev-sync"}  # installed from this package's own repo
 SETTINGS = Path.home() / ".claude/settings.json"
 CLAUDE_STATE = Path.home() / ".claude.json"  # Claude Code's own usage counters (skillUsage, pluginUsage)
 TOOLS_OWNED = Path.home() / ".cache/kit/tools.json"  # deny rules kit added, so it never removes yours
@@ -794,6 +796,59 @@ def portable():
         if folder not in install and owned(folder):
             shutil.rmtree(folder)
     print(f"shared: {len(commands)} explicit aliases for Cursor, Zed, and Pi. Antigravity: /kit router")
+    dedupe_codex()
+
+
+def dedupe_codex():
+    """Hide only Kit's shared shortcuts that have an enabled native Codex equivalent."""
+    if not shutil.which("codex"):
+        return
+    import tomllib
+
+    config = Path(os.environ.get("CODEX_HOME") or HOME / ".codex") / "config.toml"
+    if not config.is_file():
+        return
+    original = config.read_text()
+    start, end = "# BEGIN kit portable duplicates", "# END kit portable duplicates"
+    managed = re.compile(rf"(?m)^{re.escape(start)}\n.*?^{re.escape(end)}\n?", re.DOTALL)
+    base, blocks = managed.subn("", original)
+    gate([f"{config}: invalid Kit block; no settings were changed"]
+         if blocks > 1 or start in base or end in base else [])
+    settings = tomllib.loads(base)
+    manual = {Path(item["path"]).expanduser() for item in settings.get("skills", {}).get("config", [])
+              if "path" in item}
+    market = settings.get("marketplaces", {}).get(MARKET_NAME, {})
+    duplicates = set()
+    if market.get("source") == str(MARKET) and market.get("source_type") == "local":
+        for key, plugin in settings.get("plugins", {}).items():
+            publisher, _, marketplace = key.partition("@")
+            if marketplace != MARKET_NAME or publisher != slug(publisher) or plugin.get("enabled") is not True:
+                continue
+            for skill in (MARKET / "plugins" / publisher / "skills").glob("*/SKILL.md"):
+                folder = HOME / ".agents/skills" / f"{publisher}-{skill.parent.name}"
+                marker, shortcut = folder / ".kit-stub", folder / "SKILL.md"
+                if (not folder.is_symlink() and marker.is_file() and marker.read_text() == "kit-portable-v1\n"
+                        and shortcut.is_file() and shortcut not in manual
+                        and f"`~/{skill.relative_to(HOME)}`" in shortcut.read_text()):
+                    duplicates.add(shortcut)
+    block = "".join(f"[[skills.config]]\npath = {json.dumps(str(path), ensure_ascii=False)}\nenabled = false\n\n"
+                    for path in sorted(duplicates))
+    updated = base
+    if block:
+        updated += ("" if not base or base.endswith("\n\n") else "\n" if base.endswith("\n") else "\n\n")
+        updated += f"{start}\n{block}{end}\n"
+    if updated != original:
+        tomllib.loads(updated)
+        with tempfile.NamedTemporaryFile(mode="w", dir=config.parent, delete=False) as tmp:
+            temp_path = Path(tmp.name)
+            try:
+                tmp.write(updated)
+                tmp.close()
+                gate([f"{config} changed during refresh; retry"] if config.read_text() != original else [])
+                temp_path.replace(config)
+            finally:
+                temp_path.unlink(missing_ok=True)
+    print(f"Codex: hid {len(duplicates)} duplicate Kit shortcuts")
 
 
 def publish(pack, offered):
@@ -943,6 +998,49 @@ def export(pack, names, is_global):
     return 0
 
 
+def dev_sync(args, dry):
+    gate(["usage: packages.py dev-sync [--allow-main] [--dry-run]"]
+         if args not in ([], ["--allow-main"]) else [])
+    skills = Path(__file__).resolve().parent.parent
+    git = ["git", "-C", str(skills.parent)]
+    top = run([*git, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    gate(["dev-sync must run from the source checkout"]
+         if top.returncode or Path(top.stdout.strip()).resolve() != skills.parent else [])
+    branch = run([*git, "branch", "--show-current"], capture_output=True, text=True).stdout.strip()
+    gate(["dev-sync requires dev, or main with --allow-main"]
+         if branch != "dev" and not (branch == "main" and args) else [])
+
+    shared, claude = HOME / ".agents/skills", HOME / ".claude/skills"
+    links = {}
+    for name in ("kit", "bigbang", "dev-sync"):
+        source = skills / name
+        gate([f"{source / 'SKILL.md'} is missing"] if not (source / "SKILL.md").is_file() else [])
+        links[shared / name] = source
+        links[claude / name] = shared / name
+    gate([f"{link}: existing skill is not linked to {target}"
+          for link, target in links.items() if (link.exists() or link.is_symlink())
+          and not (link.is_symlink() and link.resolve() == target.resolve())])
+    if dry:
+        print(f"would push committed {branch} to origin/{branch}, link local skills, and refresh the Kit catalog")
+        return 0
+
+    status = run([*git, "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True)
+    new_skill_files = run([*git, "ls-files", "--others", "--exclude-standard", "--",
+                           "skills/kit", "skills/bigbang", "skills/dev-sync"], capture_output=True, text=True)
+    gate(["commit tracked changes and new files for the three skills before dev-sync"]
+         if status.returncode or new_skill_files.returncode or status.stdout or new_skill_files.stdout else [])
+    commit = run([*git, "rev-parse", "--verify", "HEAD"], capture_output=True, text=True)
+    gate(["could not resolve the current commit"] if commit.returncode else [])
+    push = run([*git, "push", "--no-follow-tags", "origin", f"{commit.stdout.strip()}:refs/heads/{branch}"])
+    gate([f"push to origin/{branch} failed; local skill sync did not run"] if push.returncode else [])
+    print(f"ok: pushed origin/{branch}; refreshing this machine", flush=True)
+    for link, target in links.items():
+        if not link.is_symlink():
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(target, target_is_directory=True)
+    return main(["kit-starter-pack"])
+
+
 def main(argv):
     dry, is_global = "--dry-run" in argv, "-g" in argv or "--global" in argv
     argv = [a for a in argv if a not in ("--dry-run", "-g", "--global")]
@@ -951,6 +1049,8 @@ def main(argv):
     if not argv or argv in (["verify"], ["verify", "--strict-projection"]):
         return verify(pack, strict_projection="--strict-projection" in argv)
     verb, rest = argv[0], argv[1:]
+    if verb == "dev-sync":
+        return dev_sync(rest, dry)
     if verb == "kit-starter-pack":
         repos = [r for r, _ in pack.rows.values()]
         if dry:
