@@ -529,7 +529,7 @@ def source_drift():
     top = run(["git", "-C", str(here), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
     if top.returncode:
         return [f"kit runs from a copy at {here}, not a git checkout. Link it: "
-                f"ln -sfn <cyber-skills>/skills/kit {Path(__file__).parent}"]
+                f"ln -sfn <agents-kit-stack>/skills/kit {Path(__file__).parent}"]
     dirty = run(["git", "-C", str(here), "status", "--porcelain", "--", str(here)], capture_output=True, text=True).stdout
     return [f"uncommitted kit change: {line[3:]}. Commit it on the dev branch" for line in dirty.splitlines()]
 
