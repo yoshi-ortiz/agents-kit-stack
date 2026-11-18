@@ -531,7 +531,7 @@ def source_drift():
         return [f"kit runs from a copy at {here}, not a git checkout. Link it: "
                 f"ln -sfn <cyber-skills>/skills/kit {Path(__file__).parent}"]
     dirty = run(["git", "-C", str(here), "status", "--porcelain", "--", str(here)], capture_output=True, text=True).stdout
-    return [f"uncommitted kit change: {line[3:]}. Commit it on the kit branch" for line in dirty.splitlines()]
+    return [f"uncommitted kit change: {line[3:]}. Commit it on the dev branch" for line in dirty.splitlines()]
 
 
 def usage():

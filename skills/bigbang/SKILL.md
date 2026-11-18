@@ -6,10 +6,10 @@ description: Set up this checkout in one command: kit catalog, domain MCP server
 
 # Bigbang
 
-Run from the project root, with the kit script beside this skill's sibling folder:
+From the project root, run the Kit script using its absolute path:
 
 ```bash
-python3 ../kit/packages.py bigbang [<domain>...]
+python3 /path/to/skills/kit/packages.py bigbang [<domain>...]
 ```
 
 Resolve `../kit/packages.py` from this skill's directory. Domains default to `core`. Report the `ok` and `FAIL` lines. A `FAIL` names its fix; do not work around it.
