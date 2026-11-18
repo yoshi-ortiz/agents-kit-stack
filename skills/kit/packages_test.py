@@ -130,10 +130,10 @@ class KitTest(unittest.TestCase):
         subprocess.run(["git", "init", "-q", "-b", "dev", str(repo)], check=True)
         subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
         git = ["git", "-C", str(repo)]
-        for name in ("kit", "bigbang", "dev-sync"):
+        for name in ("kit", "bigbang", "dev-sync", "new-skill"):
             skill = repo / "skills" / name / "SKILL.md"
             skill.parent.mkdir(parents=True)
-            skill.write_text(name)
+            skill.write_text(f"---\nname: {name}\ndescription: Test skill.\n---\n")
         script = repo / "skills/kit/packages.py"
         script.touch()
         subprocess.run([*git, "add", "skills"], check=True)
@@ -149,6 +149,16 @@ class KitTest(unittest.TestCase):
             refresh.assert_not_called()
             self.assertFalse(link.exists())
             subprocess.run([*git, "switch", "-q", "dev"], check=True)
+            untracked = repo / "skills/new-skill/new.py"
+            untracked.touch()
+            with self.assertRaises(SystemExit):
+                K.dev_sync([], False)
+            refresh.assert_not_called()
+            self.assertEqual(K.dev_sync(["--local-only"], False), 0)
+            self.assertTrue((self.h / ".claude/skills/new-skill").is_symlink())
+            self.assertEqual(subprocess.check_output(["git", "-C", str(remote), "for-each-ref"]), b"")
+            untracked.unlink()
+            refresh.reset_mock()
             self.assertEqual(K.dev_sync([], False), 0)
             refresh.assert_called_once_with(["kit-starter-pack"])
             self.assertEqual(link.resolve(), (repo / "skills/dev-sync").resolve())

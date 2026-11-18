@@ -8,7 +8,7 @@
   packages.py verify --strict-projection  also fail on nonzero Claude plugin token estimates
   packages.py prune [<plugin>...]      list unused @kit plugins; turn off only the ones named, in ~/.claude/settings.json
   packages.py portable                refresh shared skill commands from the published catalog
-  packages.py dev-sync [--allow-main]  push committed skills and refresh this machine
+  packages.py dev-sync [--allow-main] [--local-only]  sync repo and catalog skills
   packages.py use <skill>...           print a catalog skill from the index, so it enters the context only when called
   packages.py tools                    deny PACK.md `# Tools` in ~/.claude/settings.json, so no session loads them
   packages.py domain <domain>...       add the domain's MCP servers to this project and list its /publisher:skill commands
@@ -47,7 +47,6 @@ TIMEOUT = 600  # seconds per command
 SLASH = Path.home() / ".claude/skills"  # where the earlier layout wrote stubs
 MARKET = Path.home() / ".cache/kit/marketplace"
 MARKET_NAME = "kit"
-SELF = {"kit", "kit-starter-pack", "bigbang", "dev-sync"}  # installed from this package's own repo
 SETTINGS = Path.home() / ".claude/settings.json"
 CLAUDE_STATE = Path.home() / ".claude.json"  # Claude Code's own usage counters (skillUsage, pluginUsage)
 TOOLS_OWNED = Path.home() / ".cache/kit/tools.json"  # deny rules kit added, so it never removes yours
@@ -193,6 +192,21 @@ def discover_paths(root):
         name, desc, internal = frontmatter(f)
         if name and desc and not internal:
             found.setdefault(name, f)
+    return found
+
+
+def repository_skills():
+    """First-party packages have one entrypoint per directory under skills/."""
+    root = Path(__file__).resolve().parent.parent
+    found = {}
+    for manifest in sorted(root.glob("*/SKILL.md")):
+        name, description, internal = frontmatter(manifest)
+        if internal:
+            continue
+        gate([f"{manifest}: expected a local skill named {manifest.parent.name} with a description"]
+             if (manifest.is_symlink() or manifest.parent.is_symlink() or not name or not description
+                 or name != manifest.parent.name or name != slug(name)) else [])
+        found[name] = manifest.parent
     return found
 
 
@@ -393,19 +407,20 @@ class Scope:
 
     def drift(self, pack):
         lock, problems = self.locked(), []
+        own = {"kit-starter-pack", *repository_skills()}
         for name, entry in lock.items():
-            if name not in SELF and not pack.repo(entry.get("source", "")):
+            if name not in own and not pack.repo(entry.get("source", "")):
                 problems.append(f"{self.name}: {name} comes from {entry.get('source')}, not from the catalog")
             if not (self.store / name / "SKILL.md").is_file():
                 problems.append(f"{self.name}: {name} is in the lock but not in {self.store}")
-            elif name not in SELF and not re.search(r"^disable-model-invocation:\s*true\s*$",
+            elif name not in own and not re.search(r"^disable-model-invocation:\s*true\s*$",
                                                     (self.store / name / "SKILL.md").read_text(), re.MULTILINE):
                 # kit serves catalog skills on demand; a model-visible install loads its description into every window
                 problems.append(f"{self.name}: {name} loads into every session; it is already on demand from kit. "
                                 f"Run: python3 packages.py remove {name}{' -g' if self.is_global else ''}")
         for folder in self.folders():
             for p in sorted(folder.iterdir()):
-                if (p.name.startswith(".") or p.name in pack.owned or p.name in SELF or (p / ".kit-stub").is_file()
+                if (p.name.startswith(".") or p.name in pack.owned or p.name in own or (p / ".kit-stub").is_file()
                         or str(p.relative_to(self.root)) in self.tracked):
                     continue
                 if p.name not in lock:
@@ -999,8 +1014,10 @@ def export(pack, names, is_global):
 
 
 def dev_sync(args, dry):
-    gate(["usage: packages.py dev-sync [--allow-main] [--dry-run]"]
-         if args not in ([], ["--allow-main"]) else [])
+    flags = set(args)
+    gate(["usage: packages.py dev-sync [--allow-main] [--local-only] [--dry-run]"]
+         if flags - {"--allow-main", "--local-only"} or len(flags) != len(args) else [])
+    local_only = "--local-only" in flags
     skills = Path(__file__).resolve().parent.parent
     git = ["git", "-C", str(skills.parent)]
     top = run([*git, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
@@ -1008,36 +1025,41 @@ def dev_sync(args, dry):
          if top.returncode or Path(top.stdout.strip()).resolve() != skills.parent else [])
     branch = run([*git, "branch", "--show-current"], capture_output=True, text=True).stdout.strip()
     gate(["dev-sync requires dev, or main with --allow-main"]
-         if branch != "dev" and not (branch == "main" and args) else [])
+         if branch != "dev" and not (branch == "main" and "--allow-main" in flags) else [])
 
     shared, claude = HOME / ".agents/skills", HOME / ".claude/skills"
     links = {}
-    for name in ("kit", "bigbang", "dev-sync"):
-        source = skills / name
-        gate([f"{source / 'SKILL.md'} is missing"] if not (source / "SKILL.md").is_file() else [])
+    sources = repository_skills()
+    gate(["no first-party skill packages found"] if not sources else [])
+    for name, source in sources.items():
         links[shared / name] = source
         links[claude / name] = shared / name
     gate([f"{link}: existing skill is not linked to {target}"
           for link, target in links.items() if (link.exists() or link.is_symlink())
           and not (link.is_symlink() and link.resolve() == target.resolve())])
     if dry:
-        print(f"would push committed {branch} to origin/{branch}, link local skills, and refresh the Kit catalog")
+        if not local_only:
+            print(f"would push committed {branch} to origin/{branch}")
+        print(f"would link {', '.join(sources)} and refresh the Kit catalog")
         return 0
 
-    status = run([*git, "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True)
-    new_skill_files = run([*git, "ls-files", "--others", "--exclude-standard", "--",
-                           "skills/kit", "skills/bigbang", "skills/dev-sync"], capture_output=True, text=True)
-    gate(["commit tracked changes and new files for the three skills before dev-sync"]
-         if status.returncode or new_skill_files.returncode or status.stdout or new_skill_files.stdout else [])
-    commit = run([*git, "rev-parse", "--verify", "HEAD"], capture_output=True, text=True)
-    gate(["could not resolve the current commit"] if commit.returncode else [])
-    push = run([*git, "push", "--no-follow-tags", "origin", f"{commit.stdout.strip()}:refs/heads/{branch}"])
-    gate([f"push to origin/{branch} failed; local skill sync did not run"] if push.returncode else [])
-    print(f"ok: pushed origin/{branch}; refreshing this machine", flush=True)
+    if not local_only:
+        status = run([*git, "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True)
+        new_skill_files = run([*git, "ls-files", "--others", "--exclude-standard", "--",
+                               *(str(p.relative_to(skills.parent)) for p in sources.values())],
+                              capture_output=True, text=True)
+        gate(["commit tracked changes and new files in skill packages, or use --local-only"]
+             if status.returncode or new_skill_files.returncode or status.stdout or new_skill_files.stdout else [])
+        commit = run([*git, "rev-parse", "--verify", "HEAD"], capture_output=True, text=True)
+        gate(["could not resolve the current commit"] if commit.returncode else [])
+        push = run([*git, "push", "--no-follow-tags", "origin", f"{commit.stdout.strip()}:refs/heads/{branch}"])
+        gate([f"push to origin/{branch} failed; use --local-only to update this machine"] if push.returncode else [])
+        print(f"ok: pushed origin/{branch}", flush=True)
     for link, target in links.items():
         if not link.is_symlink():
             link.parent.mkdir(parents=True, exist_ok=True)
             link.symlink_to(target, target_is_directory=True)
+    print(f"ok: linked {len(sources)} local skills: {', '.join(sources)}", flush=True)
     return main(["kit-starter-pack"])
 
 
