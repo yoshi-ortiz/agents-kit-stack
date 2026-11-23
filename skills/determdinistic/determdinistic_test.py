@@ -6,7 +6,8 @@ import unittest
 from importlib.util import find_spec
 from pathlib import Path
 
-from determdinistic import audit, calculate
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from determdinistic import audit, calculate  # noqa: E402
 
 
 class AuditTests(unittest.TestCase):

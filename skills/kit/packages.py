@@ -200,12 +200,17 @@ def repository_skills():
     root = Path(__file__).resolve().parent.parent
     found = {}
     for manifest in sorted(root.glob("*/SKILL.md")):
+        text = manifest.read_text(errors="ignore")
         name, description, internal = frontmatter(manifest)
         if internal:
             continue
-        gate([f"{manifest}: expected a local skill named {manifest.parent.name} with a description"]
+        policy = manifest.parent / "agents/openai.yaml"
+        hidden = (re.search(r"^disable-model-invocation:\s*true\s*$", text, re.MULTILINE)
+                  or (policy.is_file() and re.search(r"^\s*allow_implicit_invocation:\s*false\s*$",
+                                                     policy.read_text(errors="ignore"), re.MULTILINE)))
+        gate([f"{manifest}: expected a model-invocable local skill named {manifest.parent.name} with a description"]
              if (manifest.is_symlink() or manifest.parent.is_symlink() or not name or not description
-                 or name != manifest.parent.name or name != slug(name)) else [])
+                 or name != manifest.parent.name or name != slug(name) or hidden) else [])
         found[name] = manifest.parent
     return found
 
@@ -381,7 +386,8 @@ class Scope:
             return {}
 
     def folders(self):
-        found = [*self.root.glob(".*/skills"), *self.root.glob(".config/*/skills"), self.root / ".pi/agent/skills"]
+        found = [*self.root.glob(".*/skills"), *self.root.glob(".config/*/skills"),
+                 self.root / ".pi/agent/skills", self.root / ".gemini/config/skills"]
         if not self.is_global:
             found += self.root.glob("*/skills")
         return [f for f in dict.fromkeys(found) if f.is_dir()]  # Python 3.14 globs match dot names with `*`
@@ -420,6 +426,9 @@ class Scope:
                                 f"Run: python3 packages.py remove {name}{' -g' if self.is_global else ''}")
         for folder in self.folders():
             for p in sorted(folder.iterdir()):
+                if p.is_symlink() and not p.exists():
+                    problems.append(f"broken link: {p}")
+                    continue
                 if (p.name.startswith(".") or p.name in pack.owned or p.name in own or (p / ".kit-stub").is_file()
                         or str(p.relative_to(self.root)) in self.tracked):
                     continue
@@ -427,7 +436,7 @@ class Scope:
                     problems.append(f"foreign entry: {p}")
                 elif folder != self.store and p.resolve() != (self.store / p.name).resolve():
                     problems.append(f"a copy, not a link: {p}")
-                elif folder not in (self.store, self.root / ".claude/skills"):
+                elif folder not in (self.store, self.root / ".claude/skills", self.root / ".gemini/config/skills"):
                     problems.append(f"{p.name} is listed twice for the agents reading {folder}: it is already in {self.store}")
         return problems
 
@@ -690,21 +699,22 @@ def slug(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
-def explicit_policy(path):
+def explicit_policy(path, implicit=False):
+    flag = "true" if implicit else "false"
     yaml = path.read_text() if path.exists() else ""
     block = re.search(r"^policy:[ \t]*(?:#[^\n]*)?\n(?:[ \t]+[^\n]*\n?)*", yaml, re.MULTILINE)
     if block:
         text = block[0].rstrip("\n")
         key = r"^([ \t]+)allow_implicit_invocation:.*$"
         if re.search(key, text, re.MULTILINE):
-            text = re.sub(key, r"\1allow_implicit_invocation: false", text, flags=re.MULTILINE)
+            text = re.sub(key, r"\1allow_implicit_invocation: " + flag, text, flags=re.MULTILINE)
         else:
             indent = re.search(r"^[ \t]+(?=\w)", text, re.MULTILINE)
-            text += "\n" + (indent[0] if indent else "  ") + "allow_implicit_invocation: false"
+            text += "\n" + (indent[0] if indent else "  ") + "allow_implicit_invocation: " + flag
         yaml = yaml[:block.start()] + text + "\n" + yaml[block.end():]
     else:
         gate([f"{path}: expected a block-style policy"] if re.search(r"^policy:", yaml, re.MULTILINE) else [])
-        yaml = (yaml.rstrip("\n") + "\n" if yaml else "") + "policy:\n  allow_implicit_invocation: false\n"
+        yaml = (yaml.rstrip("\n") + "\n" if yaml else "") + f"policy:\n  allow_implicit_invocation: {flag}\n"
     path.write_text(yaml)
 
 
@@ -783,11 +793,12 @@ def portable():
             )
 
     router = HOME / ".gemini/config/skills/kit"
-    install = {shared / name: body for name, body in commands.items()}
+    install = {shared / name: (body, True) for name, body in commands.items()}
     if not (router.is_symlink() and router.resolve() == (shared / "kit").resolve()):
         install[router] = (
             "Open `~/.agents/skills/kit/SKILL.md` and follow its command table. "
-            "Run `packages.py` from that skill's directory using its absolute path."
+            "Run `packages.py` from that skill's directory using its absolute path.",
+            False,
         )
     marker = "kit-portable-v1\n"
 
@@ -797,16 +808,17 @@ def portable():
 
     gate([f"{folder}: another skill already owns this path"
           for folder in install if (folder.exists() or folder.is_symlink()) and not owned(folder)])
-    for folder, body in install.items():
+    for folder, (body, explicit) in install.items():
         folder.mkdir(parents=True, exist_ok=True)
         (folder / ".kit-stub").write_text(marker)
         (folder / "SKILL.md").write_text(
             f"---\nname: {folder.name}\ndescription: Open the Kit skill {folder.name}.\n"
-            f"disable-model-invocation: true\n---\n\n{body}\n"
+            + ("disable-model-invocation: true\n" if explicit else "")
+            + f"---\n\n{body}\n"
         )
         agents = folder / "agents"
         agents.mkdir(exist_ok=True)
-        explicit_policy(agents / "openai.yaml")
+        explicit_policy(agents / "openai.yaml", implicit=not explicit)
     for folder in shared.iterdir():
         if folder not in install and owned(folder):
             shutil.rmtree(folder)
@@ -1045,15 +1057,23 @@ def dev_sync(args, dry):
     gate(["dev-sync requires dev, or main with --allow-main"]
          if branch != "dev" and not (branch == "main" and "--allow-main" in flags) else [])
 
-    shared, claude = HOME / ".agents/skills", HOME / ".claude/skills"
+    shared, claude, gemini = HOME / ".agents/skills", HOME / ".claude/skills", HOME / ".gemini/config/skills"
     links = {}
     sources = repository_skills()
     gate(["no first-party skill packages found"] if not sources else [])
     for name, source in sources.items():
         links[shared / name] = source
         links[claude / name] = shared / name
+        links[gemini / name] = shared / name
+    marker = "kit-portable-v1\n"
+
+    def stub(folder):
+        stamp = folder / ".kit-stub"
+        return not folder.is_symlink() and stamp.is_file() and stamp.read_text() == marker
+
     gate([f"{link}: existing skill is not linked to {target}"
           for link, target in links.items() if (link.exists() or link.is_symlink())
+          and not stub(link)
           and not (link.is_symlink() and link.resolve() == target.resolve())])
     if dry:
         if not local_only:
@@ -1073,7 +1093,14 @@ def dev_sync(args, dry):
         push = run([*git, "push", "--no-follow-tags", "origin", f"{commit.stdout.strip()}:refs/heads/{branch}"])
         gate([f"push to origin/{branch} failed; use --local-only to update this machine"] if push.returncode else [])
         print(f"ok: pushed origin/{branch}", flush=True)
+    for root in (shared, claude, gemini):
+        if root.is_dir():
+            for entry in sorted(root.iterdir()):
+                if entry.is_symlink() and not entry.exists():
+                    entry.unlink()
     for link, target in links.items():
+        if stub(link):
+            shutil.rmtree(link)
         if not link.is_symlink():
             link.parent.mkdir(parents=True, exist_ok=True)
             link.symlink_to(target, target_is_directory=True)

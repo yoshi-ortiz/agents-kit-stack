@@ -1,7 +1,6 @@
 ---
 name: determdinistic
 description: Audit Markdown fields, normalize their structure, or extract values and calculate totals from Markdown documents.
-disable-model-invocation: true
 ---
 
 # deterMDinistic

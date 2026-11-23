@@ -1,7 +1,6 @@
 ---
 name: dev-sync
 description: Push committed Yoshi Stack changes and refresh Kit skills across supported agents on this machine.
-disable-model-invocation: true
 ---
 
 # Dev Sync

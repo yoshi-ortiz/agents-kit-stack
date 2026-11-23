@@ -1,7 +1,6 @@
 ---
 name: kit
-disable-model-invocation: true
-description: Call any skill from the kit catalog without preloading it, add a domain's MCP servers, or add a source. Use for kit, kit <skill>, kit <domain>, kit add, kit-starter-pack.
+description: Load any skill from the Kit catalog on demand without preloading it, configure a domain's MCP servers, or add a catalog source. Use when the user names a catalog skill in prose, when a /publisher:skill command arrives as plain text, or for kit, kit <skill>, kit <domain>, kit add, kit-starter-pack.
 ---
 
 # Kit
@@ -21,6 +20,7 @@ description: Call any skill from the kit catalog without preloading it, add a do
 
 Rules:
 
+0. A skill name in the user's words (`ponytail skill`, `use stageshow`) or a `/publisher:skill` that arrived as plain text means `K use <name>`, then follow it. Catalog skills are explicit-only, so this is how an agent loads them on demand.
 1. `use` says a name is offered twice: run `K use owner/repo:<skill>` with the source the user means.
 2. After setup, Claude Code has `/publisher:skill`, Codex has `$publisher:skill`, Cursor and Zed have `/publisher-skill`, and Pi has `/skill:publisher-skill`. In Antigravity, use `/kit publisher:skill`.
 3. Read [PACK.md](PACK.md) when editing the catalog. Put skill repositories under `# Batteries included` and MCP endpoints under `# MCP servers`. A domain activates only the servers it lists as `mcp:name`.

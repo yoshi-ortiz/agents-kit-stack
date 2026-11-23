@@ -1,6 +1,5 @@
 ---
 name: bigbang
-disable-model-invocation: true
 description: Bootstrap a project from an empty directory or existing checkout, then configure its Kit domains and verify setup.
 ---
 

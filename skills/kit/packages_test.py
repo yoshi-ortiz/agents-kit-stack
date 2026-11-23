@@ -190,8 +190,16 @@ class KitTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 K.dev_sync([], False)
             refresh.assert_not_called()
+            gemini = self.h / ".gemini/config/skills"
+            (gemini / "kit").mkdir(parents=True)
+            (gemini / "kit/.kit-stub").write_text("kit-portable-v1\n")
+            stale = gemini / "stale-skill"
+            stale.symlink_to(self.h / ".agents/skills/stale-skill")
             self.assertEqual(K.dev_sync(["--local-only"], False), 0)
             self.assertTrue((self.h / ".claude/skills/new-skill").is_symlink())
+            self.assertTrue((gemini / "new-skill").is_symlink())
+            self.assertTrue((gemini / "kit").is_symlink())
+            self.assertFalse(stale.is_symlink())
             self.assertEqual(subprocess.check_output(["git", "-C", str(remote), "for-each-ref"]), b"")
             untracked.unlink()
             refresh.reset_mock()
@@ -201,6 +209,25 @@ class KitTest(unittest.TestCase):
             pushed = subprocess.check_output(["git", "-C", str(remote), "for-each-ref",
                                               "--format=%(refname)", "refs/heads"], text=True)
             self.assertEqual(pushed.splitlines(), ["refs/heads/dev"])
+
+    def test_repository_skills_must_remain_model_invocable(self):
+        repo = self.h / "repo"
+        script = repo / "skills/kit/packages.py"
+        skill = repo / "skills/kit/SKILL.md"
+        skill.parent.mkdir(parents=True)
+        script.touch()
+        skill.write_text("---\nname: kit\ndescription: Router.\ndisable-model-invocation: true\n---\n")
+        with mock.patch.object(K, "__file__", str(script)):
+            with self.assertRaises(SystemExit):
+                K.repository_skills()
+            skill.write_text("---\nname: kit\ndescription: Router.\n---\n")
+            policy = repo / "skills/kit/agents/openai.yaml"
+            policy.parent.mkdir()
+            policy.write_text("policy:\n  allow_implicit_invocation: false\n")
+            with self.assertRaises(SystemExit):
+                K.repository_skills()
+            policy.write_text("policy:\n  allow_implicit_invocation: true\n")
+            self.assertEqual(list(K.repository_skills()), ["kit"])
 
 
 if __name__ == "__main__":
