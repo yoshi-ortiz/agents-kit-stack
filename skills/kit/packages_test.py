@@ -30,14 +30,14 @@ class KitTest(unittest.TestCase):
             p.stop()
         self.tmp.cleanup()
 
-    def test_write_skill_is_always_explicit_only(self):
+    def test_write_skill_sets_host_policies(self):
         src = self.h / "src/s/SKILL.md"
         src.parent.mkdir(parents=True)
         src.write_text("---\nname: s\ndescription: d\n---\nbody\n")
         with mock.patch.object(K, "stamp"):
             K.write_skill(self.h / "out/b", src, "P", "o/r")
         self.assertIn("disable-model-invocation: true", (self.h / "out/b/SKILL.md").read_text())
-        self.assertIn("allow_implicit_invocation: false", (self.h / "out/b/agents/openai.yaml").read_text())
+        self.assertIn("allow_implicit_invocation: true", (self.h / "out/b/agents/openai.yaml").read_text())
 
     def test_model_visible_catalog_install_fails_verify(self):
         store = self.h / ".agents/skills"
@@ -254,12 +254,14 @@ class KitTest(unittest.TestCase):
                 (root / "kit").symlink_to(core.parent, target_is_directory=True)
             K.portable()
             self.assertTrue((self.h / ".cursor/skills/pub-demo").is_symlink())
+            self.assertTrue((self.h / ".gemini/config/skills/pub-demo").is_symlink())
+            self.assertNotIn("disable-model-invocation", (self.h / ".agents/skills/pub-demo/SKILL.md").read_text())
             problems, summary = K.agent_coverage(pack)
             self.assertEqual(problems, [])
             self.assertEqual(summary, [
                 "cursor=1/1 core, 1/1 aliases",
                 "zed=1/1 core, 1/1 aliases",
-                "antigravity=1/1 core, /kit router",
+                "antigravity=1/1 core, 1/1 aliases",
             ])
 
 
