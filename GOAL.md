@@ -1,10 +1,14 @@
 # Goal and scope
 
-Kit and Bigbang make a checkout ready to work while keeping agent context small.
+Kit and Bigbang make a checkout ready to work across every configured agent
+while keeping startup context small.
 
-- **Kit** provides a catalog of skills that load on demand. A project opts into
-  named domains, and each domain declares its MCP servers. The catalog and
-  domain definitions live in [PACK.md](skills/kit/PACK.md).
+- **Kit** provides a catalog of skills that load on demand across every agent
+  declared in [PACK.md](skills/kit/PACK.md) (`claude-code`, `codex`, `pi`,
+  `cursor`, `zed`, `antigravity`). First-party harness core skills (`skills/*`)
+  stay model-visible; catalog skills stay out of startup context wherever the
+  host supports explicit invocation. A project opts into named domains, and each
+  domain declares its MCP servers.
 - **Bigbang** sets up an empty project directory or an existing checkout. It
   initializes Git if needed, prepares the Kit catalog, configures the
   selected domains (default: core), runs the project's mise setup when present,
@@ -12,7 +16,9 @@ Kit and Bigbang make a checkout ready to work while keeping agent context small.
   verification. Setup failures stop the run and surface the failed step.
 
 Keep the skill instructions short and put repeatable operations in code. Use
-the `slop` branch to recover the rationale behind previous work.
+[AGENTS.md](AGENTS.md) for active harness rules, [INCIDENTS.md](INCIDENTS.md)
+for value-breach postmortems, and the `slop` branch to recover the rationale
+behind previous work.
 
 ## Planned skill goals
 

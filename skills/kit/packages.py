@@ -658,28 +658,29 @@ def agent_coverage(pack):
                     problems.append(f"codex: missing @kit plugins in {cfg}: {', '.join(missing_p)}. "
                                     "Run: python3 packages.py kit-starter-pack")
                 codex_cache = Path(os.environ.get("CODEX_HOME") or HOME / ".codex") / "plugins/cache" / MARKET_NAME
-                hidden_codex = [
+                leaked_codex = [
                     p for p in codex_cache.glob("*/*/skills/*/agents/openai.yaml")
-                    if re.search(r"^\s*allow_implicit_invocation:\s*false\s*$", p.read_text(errors="ignore"), re.MULTILINE)
+                    if not re.search(r"^\s*allow_implicit_invocation:\s*false\s*$",
+                                     p.read_text(errors="ignore"), re.MULTILINE)
                 ] if codex_cache.is_dir() else []
-                if hidden_codex:
-                    problems.append(f"codex: {len(hidden_codex)} cached @kit skills have allow_implicit_invocation: false. "
-                                    "Run: python3 packages.py kit-starter-pack")
+                if leaked_codex:
+                    problems.append(f"codex: {len(leaked_codex)} cached @kit skills are not explicit-only "
+                                    "(allow_implicit_invocation: false). Run: python3 packages.py kit-starter-pack")
                 cat_note = f"{len(want) - len(missing_p)}/{len(want)} plugins"
             else:
                 missing_c = [n for n in catalog if not (root / n / "SKILL.md").is_file()]
                 if missing_c:
                     problems.append(f"{agent}: missing {len(missing_c)}/{len(catalog)} catalog aliases in {root}. "
                                     "Run: python3 packages.py portable")
-                hidden_c = [
+                leaked_c = [
                     n for n in catalog
                     if (root / n / "SKILL.md").is_file()
-                    and re.search(r"^disable-model-invocation:\s*true\s*$",
-                                  (root / n / "SKILL.md").read_text(errors="ignore"), re.MULTILINE)
+                    and not re.search(r"^disable-model-invocation:\s*true\s*$",
+                                      (root / n / "SKILL.md").read_text(errors="ignore"), re.MULTILINE)
                 ]
-                if hidden_c:
-                    problems.append(f"{agent}: {len(hidden_c)}/{len(catalog)} catalog aliases in {root} are hidden "
-                                    "(disable-model-invocation: true). Run: python3 packages.py portable")
+                if leaked_c:
+                    problems.append(f"{agent}: {len(leaked_c)}/{len(catalog)} catalog aliases in {root} are not "
+                                    "explicit-only (disable-model-invocation: true). Run: python3 packages.py portable")
                 cat_note = f"{len(catalog) - len(missing_c)}/{len(catalog)} aliases"
         else:
             cat_note = "catalog not indexed"
@@ -806,9 +807,9 @@ def explicit_policy(path, implicit=False):
 
 
 def write_skill(d, src, publisher, repo):
-    """Package a skill for Claude Code and Codex plugins.
-    Claude Code: `disable-model-invocation: true` keeps slash-command plugins at ~0 startup tokens.
-    Codex: agents/openai.yaml `policy.allow_implicit_invocation: true` keeps skills discoverable in sessions."""
+    """Package a skill with explicit-only invocation policies for both plugin hosts.
+    Claude Code: `disable-model-invocation: true` keeps /publisher:skill at ~0 startup tokens.
+    Codex: agents/openai.yaml `policy.allow_implicit_invocation: false` keeps $publisher:skill at 0 startup tokens."""
     lines = src.read_text(errors="ignore").split("\n")
     if "---" not in lines[1:]:
         return False
@@ -827,7 +828,7 @@ def write_skill(d, src, publisher, repo):
     agents.mkdir(exist_ok=True)
     policy = agents / "openai.yaml"
     gate([f"{policy}: expected a regular file"] if policy.is_symlink() else [])
-    explicit_policy(policy, implicit=True)
+    explicit_policy(policy, implicit=False)
     skill = d / "SKILL.md"
     skill.write_text("\n".join(["---", "disable-model-invocation: true", *fm, *lines[end:]]))
     stamp(skill, {"publisher": publisher, "source": repo, "source-url": f"https://github.com/{repo}"}, True)
@@ -880,11 +881,12 @@ def portable():
             )
 
     router = HOME / ".gemini/config/skills/kit"
-    install = {shared / name: body for name, body in commands.items()}
+    install = {shared / name: (body, True) for name, body in commands.items()}
     if not (router.is_symlink() and router.resolve() == (shared / "kit").resolve()):
         install[router] = (
             "Open `~/.agents/skills/kit/SKILL.md` and follow its command table. "
-            "Run `packages.py` from that skill's directory using its absolute path."
+            "Run `packages.py` from that skill's directory using its absolute path.",
+            False,
         )
     marker = "kit-portable-v1\n"
 
@@ -894,15 +896,17 @@ def portable():
 
     gate([f"{folder}: another skill already owns this path"
           for folder in install if (folder.exists() or folder.is_symlink()) and not owned(folder)])
-    for folder, body in install.items():
+    for folder, (body, explicit) in install.items():
         folder.mkdir(parents=True, exist_ok=True)
         (folder / ".kit-stub").write_text(marker)
         (folder / "SKILL.md").write_text(
-            f"---\nname: {folder.name}\ndescription: Open the Kit skill {folder.name}.\n---\n\n{body}\n"
+            f"---\nname: {folder.name}\ndescription: Open the Kit skill {folder.name}.\n"
+            + ("disable-model-invocation: true\n" if explicit else "")
+            + f"---\n\n{body}\n"
         )
         agents = folder / "agents"
         agents.mkdir(exist_ok=True)
-        explicit_policy(agents / "openai.yaml", implicit=True)
+        explicit_policy(agents / "openai.yaml", implicit=not explicit)
     for folder in shared.iterdir():
         if folder not in install and owned(folder):
             shutil.rmtree(folder)
