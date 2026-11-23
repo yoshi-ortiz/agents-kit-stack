@@ -197,6 +197,7 @@ class KitTest(unittest.TestCase):
             stale.symlink_to(self.h / ".agents/skills/stale-skill")
             self.assertEqual(K.dev_sync(["--local-only"], False), 0)
             self.assertTrue((self.h / ".claude/skills/new-skill").is_symlink())
+            self.assertTrue((self.h / ".cursor/skills/new-skill").is_symlink())
             self.assertTrue((gemini / "new-skill").is_symlink())
             self.assertTrue((gemini / "kit").is_symlink())
             self.assertFalse(stale.is_symlink())
@@ -228,6 +229,38 @@ class KitTest(unittest.TestCase):
                 K.repository_skills()
             policy.write_text("policy:\n  allow_implicit_invocation: true\n")
             self.assertEqual(list(K.repository_skills()), ["kit"])
+
+    def test_portable_links_cursor_and_agent_coverage_gates_missing_agents(self):
+        repo = self.h / "repo"
+        script = repo / "skills/kit/packages.py"
+        core = repo / "skills/kit/SKILL.md"
+        core.parent.mkdir(parents=True)
+        script.touch()
+        core.write_text("---\nname: kit\ndescription: Router.\n---\n")
+        skill = K.MARKET / "plugins/pub/skills/demo/SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("---\nname: demo\ndescription: Demo.\n---\n")
+        (K.MARKET / ".claude-plugin").mkdir(parents=True)
+        (K.MARKET / ".claude-plugin/marketplace.json").write_text(json.dumps({
+            "plugins": [{"name": "pub", "source": "./plugins/pub"}]
+        }))
+        pack = mock.Mock(agents=["cursor", "zed", "antigravity"])
+        with mock.patch.object(K, "__file__", str(script)), mock.patch.object(K.shutil, "which", return_value=None):
+            problems, _ = K.agent_coverage(pack)
+            self.assertTrue(any("cursor: missing core skill" in p for p in problems))
+            self.assertTrue(any("cursor: missing 1/1 catalog aliases" in p for p in problems))
+            for root in (self.h / ".agents/skills", self.h / ".cursor/skills", self.h / ".gemini/config/skills"):
+                root.mkdir(parents=True, exist_ok=True)
+                (root / "kit").symlink_to(core.parent, target_is_directory=True)
+            K.portable()
+            self.assertTrue((self.h / ".cursor/skills/pub-demo").is_symlink())
+            problems, summary = K.agent_coverage(pack)
+            self.assertEqual(problems, [])
+            self.assertEqual(summary, [
+                "cursor=1/1 core, 1/1 aliases",
+                "zed=1/1 core, 1/1 aliases",
+                "antigravity=1/1 core, /kit router",
+            ])
 
 
 if __name__ == "__main__":

@@ -436,7 +436,8 @@ class Scope:
                     problems.append(f"foreign entry: {p}")
                 elif folder != self.store and p.resolve() != (self.store / p.name).resolve():
                     problems.append(f"a copy, not a link: {p}")
-                elif folder not in (self.store, self.root / ".claude/skills", self.root / ".gemini/config/skills"):
+                elif folder not in (self.store, self.root / ".claude/skills",
+                                    self.root / ".cursor/skills", self.root / ".gemini/config/skills"):
                     problems.append(f"{p.name} is listed twice for the agents reading {folder}: it is already in {self.store}")
         return problems
 
@@ -602,13 +603,84 @@ def prune(dry, picked=()):
     return 0
 
 
+def agent_global_dir(agent):
+    """Global skill directory each supported agent actually reads."""
+    return {
+        "claude-code": HOME / ".claude/skills",
+        "cursor": HOME / ".cursor/skills",
+        "antigravity": HOME / ".gemini/config/skills",
+    }.get(agent, HOME / ".agents/skills")
+
+
+def agent_coverage(pack):
+    """Verify every configured agent has all core repository skills and catalog access."""
+    sources = repository_skills()
+    manifest = MARKET / ".claude-plugin/marketplace.json"
+    plugins_meta = json.loads(manifest.read_text()).get("plugins", []) if manifest.is_file() else []
+    catalog = [
+        f"{plugin['name']}-{skill.parent.name}"
+        for plugin in plugins_meta
+        for skill in sorted((MARKET / plugin["source"] / "skills").glob("*/SKILL.md"))
+    ]
+    problems, summary = [], []
+    for agent in pack.agents:
+        root = agent_global_dir(agent)
+        missing_core = [n for n in sources if not (root / n / "SKILL.md").is_file()]
+        if missing_core:
+            problems.append(f"{agent}: missing core skill(s) in {root}: {', '.join(missing_core)}. "
+                            "Run: python3 packages.py dev-sync --local-only")
+        if catalog:
+            if agent == "claude-code" and shutil.which("claude"):
+                installed = HOME / ".claude/plugins/installed_plugins.json"
+                try:
+                    plugins = set(json.loads(installed.read_text()).get("plugins", {}))
+                except (FileNotFoundError, ValueError):
+                    plugins = set()
+                want = {f"{p['name']}@{MARKET_NAME}" for p in plugins_meta} - disabled_plugins()
+                missing_p = sorted(want - plugins)
+                if missing_p:
+                    problems.append(f"claude-code: missing @kit plugins: {', '.join(missing_p)}. "
+                                    "Run: python3 packages.py kit-starter-pack")
+                cat_note = f"{len(want) - len(missing_p)}/{len(want)} plugins"
+            elif agent == "codex" and shutil.which("codex"):
+                import tomllib
+
+                cfg = Path(os.environ.get("CODEX_HOME") or HOME / ".codex") / "config.toml"
+                try:
+                    data = tomllib.loads(cfg.read_text()) if cfg.is_file() else {}
+                except ValueError:
+                    data = {}
+                enabled = {k for k, v in data.get("plugins", {}).items()
+                           if v.get("enabled") is True and k.endswith("@" + MARKET_NAME)}
+                want = {f"{p['name']}@{MARKET_NAME}" for p in plugins_meta}
+                missing_p = sorted(want - enabled)
+                if missing_p:
+                    problems.append(f"codex: missing @kit plugins in {cfg}: {', '.join(missing_p)}. "
+                                    "Run: python3 packages.py kit-starter-pack")
+                cat_note = f"{len(want) - len(missing_p)}/{len(want)} plugins"
+            elif agent == "antigravity":
+                cat_note = "/kit router" if (root / "kit/SKILL.md").is_file() else "missing /kit"
+            else:
+                missing_c = [n for n in catalog if not (root / n / "SKILL.md").is_file()]
+                if missing_c:
+                    problems.append(f"{agent}: missing {len(missing_c)}/{len(catalog)} catalog aliases in {root}. "
+                                    "Run: python3 packages.py portable")
+                cat_note = f"{len(catalog) - len(missing_c)}/{len(catalog)} aliases"
+        else:
+            cat_note = "catalog not indexed"
+        summary.append(f"{agent}={len(sources) - len(missing_core)}/{len(sources)} core, {cat_note}")
+    return problems, summary
+
+
 def verify(pack, strict_projection=False):
     problems = [p for s in scopes() for p in s.drift(pack) + s.stamps(pack, False)] + twice()
     budget_problems, count, listing = budget(pack)
-    gate(problems + budget_problems + source_drift() + (tool_drift(pack) if INDEX.exists() else []))
+    cov_problems, cov_summary = agent_coverage(pack)
+    gate(problems + budget_problems + cov_problems + source_drift() + (tool_drift(pack) if INDEX.exists() else []))
     if strict_projection:
         gate(claude_projection(), "Plugin projections are estimates. Measure startup context separately.")
     print(f"ok: skills CLI locks contain {count} skills and {listing} description bytes")
+    print("ok: agents: " + "; ".join(cov_summary))
     idle = unused_plugins()
     if idle:
         print(f"hint: {len(idle)} enabled plugin(s) never used: {', '.join(idle)}. Ask the owner, then: python3 packages.py prune <plugin>...")
@@ -822,7 +894,24 @@ def portable():
     for folder in shared.iterdir():
         if folder not in install and owned(folder):
             shutil.rmtree(folder)
-    print(f"shared: {len(commands)} explicit aliases for Cursor, Zed, and Pi. Antigravity: /kit router")
+    cursor = HOME / ".cursor/skills"
+    cursor.mkdir(parents=True, exist_ok=True)
+    cursor_links = {cursor / name: shared / name for name in commands}
+    gate([f"{link}: another skill already owns this path"
+          for link, target in cursor_links.items()
+          if (link.exists() or link.is_symlink())
+          and not (link.is_symlink() and link.resolve() == target.resolve())])
+    for link, target in cursor_links.items():
+        if not link.is_symlink():
+            link.symlink_to(target, target_is_directory=True)
+    for entry in list(cursor.iterdir()):
+        if entry.is_symlink() and entry not in cursor_links:
+            target = Path(os.readlink(entry))
+            if not target.is_absolute():
+                target = entry.parent / target
+            if target.parent == shared and (not entry.exists() or owned(target)):
+                entry.unlink()
+    print(f"shared: {len(commands)} explicit aliases for Cursor (~/.cursor/skills), Zed, and Pi. Antigravity: /kit router")
     dedupe_codex()
 
 
@@ -1057,14 +1146,15 @@ def dev_sync(args, dry):
     gate(["dev-sync requires dev, or main with --allow-main"]
          if branch != "dev" and not (branch == "main" and "--allow-main" in flags) else [])
 
-    shared, claude, gemini = HOME / ".agents/skills", HOME / ".claude/skills", HOME / ".gemini/config/skills"
+    shared = HOME / ".agents/skills"
+    extra_roots = [HOME / ".claude/skills", HOME / ".cursor/skills", HOME / ".gemini/config/skills"]
     links = {}
     sources = repository_skills()
     gate(["no first-party skill packages found"] if not sources else [])
     for name, source in sources.items():
         links[shared / name] = source
-        links[claude / name] = shared / name
-        links[gemini / name] = shared / name
+        for root in extra_roots:
+            links[root / name] = shared / name
     marker = "kit-portable-v1\n"
 
     def stub(folder):
@@ -1093,7 +1183,7 @@ def dev_sync(args, dry):
         push = run([*git, "push", "--no-follow-tags", "origin", f"{commit.stdout.strip()}:refs/heads/{branch}"])
         gate([f"push to origin/{branch} failed; use --local-only to update this machine"] if push.returncode else [])
         print(f"ok: pushed origin/{branch}", flush=True)
-    for root in (shared, claude, gemini):
+    for root in (shared, *extra_roots):
         if root.is_dir():
             for entry in sorted(root.iterdir()):
                 if entry.is_symlink() and not entry.exists():
