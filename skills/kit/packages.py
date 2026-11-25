@@ -10,6 +10,7 @@
   packages.py portable                refresh shared skill commands from the published catalog
   packages.py dev-sync [--allow-main] [--local-only]  sync repo and catalog skills
   packages.py use <skill>...           print a catalog skill from the index, so it enters the context only when called
+  packages.py tag [<tag>...]           list declared PACK.md tags or filter catalog skills by one or more tags
   packages.py tools                    deny PACK.md `# Tools` in ~/.claude/settings.json, so no session loads them
   packages.py domain <domain>...       add the domain's MCP servers to this project and list its /publisher:skill commands
   packages.py <token>... [-g]          install into this project, or globally with -g.
@@ -63,10 +64,13 @@ if os.environ.get("KIT_TELEMETRY") != "1":
 ROW = re.compile(
     r"^\s*[*-]\s+(?:<img[^>]*>\s*)?\[[^\]]+\]\(https://github\.com/([\w.-]+/[\w.-]+?)/?\)\s*(?::\s*(.*))?$"
 )
+LINK = re.compile(r"\[([^\]]+)\]\(https://github\.com/([\w.-]+/[\w.-]+?)/?\)")
 BULLET = re.compile(r"^\s*[*-]\s")
 NAME = re.compile(r"\[([^\]]+)\]\(https://github\.com/")
 ITEM = re.compile(r"^\s*\d+\.\s+(\S+)")
 REPO = re.compile(r"[\w.-]+/[\w.-]+")
+TAG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+TAGS_LINE = re.compile(r"^\s*Tags:\s*(.+)$", re.IGNORECASE)
 
 
 def gate(problems, hint=""):
@@ -95,15 +99,44 @@ class Pack:
     def __init__(self, text):
         self.text, self.rows, self.domains, self.agents, problems = text, {}, {}, [], []
         self.owned, self.publisher, self.tools, self.mcp = set(), {}, [], {}
-        section = domain = ""
+        self.tags, self.repo_tags, self.domain_tags, used_tags = [], {}, {}, []
+        section = domain = last_repo = ""
         for n, line in enumerate(text.splitlines(), 1):
             if line.startswith("# "):
-                section, domain = line[2:].strip().lower(), ""
+                section, domain, last_repo = line[2:].strip().lower(), "", ""
             elif line.startswith("## ") and section == "domains":
                 domain = line[3:].strip().lower()
                 if domain in self.domains:
                     problems.append(f"PACK.md:{n} repeats domain {domain}")
                 self.domains[domain] = []
+                self.domain_tags[domain] = set()
+            elif (tm := TAGS_LINE.match(line)) and section in ("batteries included", "domains"):
+                tags = [t.strip() for t in re.split(r"[,\s]+", tm.group(1)) if t.strip()]
+                if section == "batteries included" and last_repo:
+                    self.repo_tags[last_repo] |= set(tags)
+                    used_tags.extend((n, t) for t in tags)
+                elif section == "domains" and domain:
+                    self.domain_tags[domain] |= set(tags)
+                    used_tags.extend((n, t) for t in tags)
+                else:
+                    problems.append(f"PACK.md:{n} `Tags:` line has no preceding entry")
+            elif section == "batteries included" and line.lstrip().startswith("|"):
+                cells = [c.strip() for c in line.strip().strip("|").split("|")]
+                if cells and (cells[0].lower() == "source" or all(re.fullmatch(r":?-{2,}:?", c) for c in cells)):
+                    continue
+                m = LINK.search(cells[0]) if len(cells) == 3 else None
+                if not m:
+                    problems.append(f"PACK.md:{n} is not `| [Name](https://github.com/owner/repo) | skills | tags |`")
+                elif m.group(2).lower() in self.rows:
+                    problems.append(f"PACK.md:{n} repeats {m.group(2)}")
+                else:
+                    names = [] if cells[1].lower() in ("", "-", "all") else [s for s in re.split(r"[,\s]+", cells[1]) if s]
+                    tags = [] if cells[2] in ("", "-") else [t for t in re.split(r"[,\s]+", cells[2]) if t]
+                    last_repo = m.group(2).lower()
+                    self.rows[last_repo] = (m.group(2), names)
+                    self.publisher[last_repo] = m.group(1)
+                    self.repo_tags[last_repo] = set(tags)
+                    used_tags.extend((n, t) for t in tags)
             elif section == "batteries included" and BULLET.match(line):
                 m = ROW.match(line)
                 if not m:
@@ -112,15 +145,17 @@ class Pack:
                     problems.append(f"PACK.md:{n} repeats {m.group(1)}")
                 else:
                     names = [s for s in re.split(r"[,\s]+", m.group(2) or "") if s]
-                    self.rows[m.group(1).lower()] = (m.group(1), names)
-                    self.publisher[m.group(1).lower()] = NAME.search(line).group(1)
+                    last_repo = m.group(1).lower()
+                    self.rows[last_repo] = (m.group(1), names)
+                    self.publisher[last_repo] = NAME.search(line).group(1)
+                    self.repo_tags[last_repo] = set()
             elif section == "mcp servers" and re.match(r"^\s*\d+\.", line):
                 m = re.match(r"^\s*\d+\.\s+`?([\w-]+)`?\s+`?(.+?)`?\s*$", line)
                 if not m:
                     problems.append(f"PACK.md:{n} is not `1. name https://url` or `1. name command args`")
                 else:
                     self.mcp[m.group(1)] = m.group(2)
-            elif section in ("agents", "agent-owned", "tools", "domains") and re.match(r"^\s*\d+\.", line):
+            elif section in ("agents", "agent-owned", "tools", "tags", "domains") and re.match(r"^\s*\d+\.", line):
                 m = ITEM.match(line)
                 if not m:
                     problems.append(f"PACK.md:{n} is an empty list item")
@@ -135,10 +170,29 @@ class Pack:
                     if not TOOL.fullmatch(rule):
                         problems.append(f"PACK.md:{n} `{rule}` is scoped; only a bare name or glob leaves a tool out of context")
                     self.tools.append(rule)
+                elif section == "tags":
+                    tag = m.group(1)
+                    if not TAG.fullmatch(tag):
+                        problems.append(f"PACK.md:{n} invalid tag `{tag}`; use lowercase letters, digits, and hyphens")
+                    elif tag in self.tags:
+                        problems.append(f"PACK.md:{n} repeats tag `{tag}`")
+                    else:
+                        self.tags.append(tag)
                 elif not domain:
                     problems.append(f"PACK.md:{n} is a list item outside a `## domain`")
                 else:
-                    self.domains[domain].append(m.group(1))
+                    body = re.sub(r"^\s*\d+\.\s+", "", line).strip()
+                    if ": " in body:
+                        prefix, rest = body.split(":", 1)
+                        self.domains[domain].extend(f"{prefix.strip()}:{s}" for s in re.split(r"[,\s]+", rest) if s)
+                    else:
+                        self.domains[domain].append(m.group(1))
+        declared = set(self.tags)
+        for n, t in used_tags:
+            if not TAG.fullmatch(t):
+                problems.append(f"PACK.md:{n} invalid tag `{t}`; use lowercase letters, digits, and hyphens")
+            elif t not in declared:
+                problems.append(f"PACK.md:{n} uses undeclared tag `{t}`; declare it under `# Tags`")
         if not self.rows:
             problems.append("PACK.md has no rows under `# Batteries included`")
         if not self.agents:
@@ -623,6 +677,23 @@ def agent_coverage(pack):
         for skill in sorted((MARKET / plugin["source"] / "skills").glob("*/SKILL.md"))
     ]
     problems, summary = [], []
+    if manifest.is_file() and INDEX.is_file() and isinstance(getattr(pack, "rows", None), dict):
+        try:
+            idx = json.loads(INDEX.read_text())
+        except ValueError:
+            idx = {}
+        published = set(catalog)
+        unpublished = [
+            f"{slug(pack.publisher[k])}:{n}"
+            for k, (repo, offered_names) in sorted(pack.rows.items())
+            if repo in idx
+            for n in sorted(idx[repo].get("skills", {}))
+            if (not offered_names or n in offered_names) and f"{slug(pack.publisher[k])}-{n}" not in published
+        ]
+        if unpublished:
+            sample = ", ".join(unpublished[:5]) + (f", +{len(unpublished) - 5} more" if len(unpublished) > 5 else "")
+            problems.append(f"catalog: PACK.md offers {len(unpublished)} unpublished skill(s) ({sample}). "
+                            "Run: python3 packages.py kit-starter-pack")
     for agent in pack.agents:
         root = agent_global_dir(agent)
         missing_core = [n for n in sources if not (root / n / "SKILL.md").is_file()]
@@ -729,12 +800,14 @@ def add_row(pack, rest):
                  "Not on GitHub, or an MCP server? Add it to PACK.md # MCP servers as `1. name url-or-command`.")
     names = rest[2:]
     gate([f"already in the catalog: {repo}"] if pack.repo(repo) else [])
-    row = f"* [{repo}](https://github.com/{repo})" + (": " + ", ".join(names) if names else "")
     lines = pack.text.splitlines()
     start = lines.index("# Batteries included")
     end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("# ")), len(lines))
     while end > start + 1 and not lines[end - 1].strip():
         end -= 1
+    is_table = any(l.lstrip().startswith("|") for l in lines[start:end])
+    row = (f"| [{repo}](https://github.com/{repo}) | {', '.join(names) if names else 'all'} | |"
+           if is_table else f"* [{repo}](https://github.com/{repo})" + (": " + ", ".join(names) if names else ""))
     lines.insert(end, row)
     new = Pack("\n".join(lines) + "\n")
     index(new, [repo])  # gates: resolves, clones, offers only skills it has
@@ -1116,9 +1189,68 @@ def bigbang(pack, names, dry):
     return verify(pack)
 
 
+def skill_tags(pack, offered):
+    """Return {(repo, skill): set(tags)} across all offered catalog skills."""
+    by_skill = {(repo, name): set(pack.repo_tags.get(repo.lower(), ()))
+                for repo, skills in offered.items() for name in skills}
+    aliases = {slug(p): pack.repo(r) for r, p in pack.publisher.items()}
+    for d, items in pack.domains.items():
+        dtags = set(pack.domain_tags.get(d, ())) | ({d} if d in pack.tags else set())
+        for item in items:
+            if item.startswith("mcp:"):
+                continue
+            repo_part, _, name = item.partition(":")
+            repo = (pack.repo(repo_part) or aliases.get(repo_part.lower())) if name else pack.repo(repo_part)
+            if repo and name and (repo, name) in by_skill:
+                by_skill[(repo, name)] |= dtags
+            elif repo:
+                for n in offered.get(repo, ()):
+                    by_skill[(repo, n)] |= dtags
+            else:
+                for r in offered:
+                    if item in offered[r]:
+                        by_skill[(r, item)] |= dtags
+    return by_skill
+
+
+def filter_tags(pack, tokens):
+    """List declared tags or filter catalog skills by one or more tags (AND)."""
+    gate(["PACK.md has no tags under `# Tags`"] if not pack.tags else [])
+    want = [t.lstrip("#").lower() for t in tokens]
+    gate([f"{t}: not a tag. Tags: {', '.join(pack.tags)}" for t in want if t not in pack.tags])
+    offered = index(pack, sorted(r for r, _ in pack.rows.values()), offline=True)
+    tagged = skill_tags(pack, offered)
+    if not want:
+        print(f"tags ({len(pack.tags)}):")
+        for t in pack.tags:
+            count = sum(1 for ts in tagged.values() if t in ts)
+            doms = [d for d in pack.domains if t in pack.domain_tags.get(d, ()) or d == t]
+            suffix = f"  domains: {', '.join(doms)}" if doms else ""
+            print(f"  {t} ({count}){suffix}")
+        return 0
+    want_set = set(want)
+    hits = sorted((slug(pack.publisher[r.lower()]), n, sorted(ts))
+                  for (r, n), ts in tagged.items() if want_set <= ts)
+    doms = [d for d in pack.domains if want_set <= (pack.domain_tags.get(d, set()) | {d})]
+    if doms:
+        print(f"domains: {', '.join(doms)}")
+    label = ", ".join(want)
+    if not hits:
+        print(f"no skills match: {label}")
+        return 0
+    print(f"skills ({len(hits)}) for {label}:")
+    for pub, name, ts in hits:
+        print(f"  /{pub}:{name}  [{', '.join(ts)}]")
+    return 0
+
+
 def use(pack, tokens):
     """Print a catalog skill from the cache: it enters the context only now, when called."""
     gate([] if tokens else ["name a skill: packages.py use <skill>"])
+    if pack.tags and all(t.lstrip("#").lower() in pack.tags for t in tokens):
+        offered = index(pack, sorted(r for r, _ in pack.rows.values()), offline=True)
+        if not any(t.lower() in pack.domains or pack.repo(t) or any(t in s for s in offered.values()) for t in tokens):
+            return filter_tags(pack, tokens)
     for name, (repo, _) in resolve(pack, tokens, offline=True).items():
         root = CACHE / repo.replace("/", "@")
         skill = discover_paths(root).get(name)
@@ -1248,6 +1380,8 @@ def main(argv):
         return 0
     if verb == "use":
         return use(pack, rest)
+    if verb in ("tag", "tags"):
+        return filter_tags(pack, rest)
     if verb == "prune":
         return prune(dry, rest)
     if verb == "tools":

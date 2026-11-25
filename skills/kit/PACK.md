@@ -56,36 +56,62 @@ app's own tools (`ccd_*`, terminal, browser, computer use) are left alone.
 10. `RemoteTrigger`
 11. `PushNotification`
 
+# Tags
+
+Canonical tags for filtering skills (`kit tag <tag>...` or `kit <tag>`).
+Set tags in the `# Batteries included` table or via a `Tags: a, b` line under a `## <domain>` heading.
+Domain names are implicit tags. Every tag used below must be declared here; undeclared or malformed tags fail verification.
+
+1. apple
+2. architecture
+3. cloud
+4. code
+5. core
+6. debugging
+7. design
+8. docs
+9. ios
+10. mcp
+11. media
+12. swift
+13. testing
+14. web
+15. workflow
+
 # Batteries included
 
-The catalog. One bullet per source: `* <img/> [Name](github url): skills`.
-No `: skills` offers every skill in the repo; otherwise only the names listed.
-The bullet's name is the publisher stamped into each installed skill's `metadata:`.
-A bullet here that does not parse fails the run.
+The catalog. One table row per source: `| Source | Skills | Tags |`.
+`all` offers every skill in the repo; otherwise list the skill names.
+The link text is the publisher stamped into each installed skill's `metadata:`.
+A row here that does not parse fails the run.
 
-* <img src="https://github.com/mattpocock.png" width="20"> [Matt Pocock](https://github.com/mattpocock/skills)
-* <img src="https://github.com/addyosmani.png" width="20"> [Addy Osmani](https://github.com/addyosmani/agent-skills)
-* <img src="https://github.com/backnotprop.png" width="20"> [pstack](https://github.com/backnotprop/pstack)
-* <img src="https://github.com/DietrichGebert.png" width="20"> [ponytail](https://github.com/DietrichGebert/ponytail)
-* <img src="https://github.com/obra.png" width="20"> [superpowers](https://github.com/obra/superpowers)
-* <img src="https://github.com/google.png" width="20"> [Elephant Goldfish Model](https://github.com/google/elephant-goldfish-model)
-* <img src="https://github.com/microsoft.png" width="20"> [TokenEconomizer](https://github.com/microsoft/TokenEconomizer)
-* <img src="https://github.com/googlechrome.png" width="20"> [Modern Web Guidance](https://github.com/googlechrome/modern-web-guidance)
-* <img src="https://github.com/tuist.png" width="20"> [Tuist](https://github.com/tuist/agent-skills)
-* <img src="https://github.com/anthropics.png" width="20"> [Anthropic](https://github.com/anthropics/skills)
-* <img src="https://github.com/upstash.png" width="20"> [Context7](https://github.com/upstash/context7)
-* <img src="https://github.com/hashicorp.png" width="20"> [HashiCorp](https://github.com/hashicorp/agent-skills)
-* <img src="https://github.com/cloudflare.png" width="20"> [Cloudflare](https://github.com/cloudflare/skills)
-* [benjitaylor/skills](https://github.com/benjitaylor/skills)
-* <img src="https://github.com/mindrally.png" width="20"> [mindrally](https://github.com/mindrally/skills): bootstrap
-* <img src="https://github.com/digitalsamba.png" width="20"> [Digital Samba](https://github.com/digitalsamba/claude-code-video-toolkit): ffmpeg
+| Source | Skills | Tags |
+| --- | --- | --- |
+| <img src="https://github.com/mattpocock.png" width="20"> [Matt Pocock](https://github.com/mattpocock/skills) | all | code, workflow, architecture, testing |
+| <img src="https://github.com/addyosmani.png" width="20"> [Addy Osmani](https://github.com/addyosmani/agent-skills) | all | web, workflow, architecture, testing |
+| <img src="https://github.com/backnotprop.png" width="20"> [pstack](https://github.com/backnotprop/pstack) | all | code, workflow, architecture, debugging |
+| <img src="https://github.com/DietrichGebert.png" width="20"> [ponytail](https://github.com/DietrichGebert/ponytail) | all | code, workflow |
+| <img src="https://github.com/obra.png" width="20"> [superpowers](https://github.com/obra/superpowers) | all | code, workflow, debugging, testing |
+| <img src="https://github.com/google.png" width="20"> [Elephant Goldfish Model](https://github.com/google/elephant-goldfish-model) | all | workflow, architecture |
+| <img src="https://github.com/microsoft.png" width="20"> [TokenEconomizer](https://github.com/microsoft/TokenEconomizer) | all | workflow |
+| <img src="https://github.com/googlechrome.png" width="20"> [Modern Web Guidance](https://github.com/googlechrome/modern-web-guidance) | all | web |
+| <img src="https://github.com/tuist.png" width="20"> [Tuist](https://github.com/tuist/agent-skills) | all | apple, ios, swift |
+| <img src="https://github.com/anthropics.png" width="20"> [Anthropic](https://github.com/anthropics/skills) | all | web, docs, design, mcp |
+| <img src="https://github.com/upstash.png" width="20"> [Context7](https://github.com/upstash/context7) | all | docs, mcp |
+| <img src="https://github.com/hashicorp.png" width="20"> [HashiCorp](https://github.com/hashicorp/agent-skills) | all | cloud |
+| <img src="https://github.com/cloudflare.png" width="20"> [Cloudflare](https://github.com/cloudflare/skills) | all | cloud, web |
+| [benjitaylor/skills](https://github.com/benjitaylor/skills) | all | design, web |
+| <img src="https://github.com/mindrally.png" width="20"> [mindrally](https://github.com/mindrally/skills) | bootstrap, swift, swiftui-development | - |
+| <img src="https://github.com/digitalsamba.png" width="20"> [Digital Samba](https://github.com/digitalsamba/claude-code-video-toolkit) | ffmpeg | media |
 
 # Domains
 
-What to install per project domain. Write a skill as its name, or as `owner/repo:name`
-when two sources offer it. `owner/repo` alone means every skill the catalog offers from it.
+What to install per project domain. Write a skill as its name, as `owner/repo:name`
+(or `owner/repo: a, b` to group skills from one repo), or `owner/repo` alone for all of its skills.
 
 ## core
+
+Tags: code
 
 1. ponytail
 2. ponytail-review
@@ -104,6 +130,8 @@ when two sources offer it. `owner/repo` alone means every skill the catalog offe
 
 ## web
 
+Tags: design
+
 1. frontend-design
 2. modern-web-guidance
 3. frontend-ui-engineering
@@ -114,26 +142,19 @@ when two sources offer it. `owner/repo` alone means every skill the catalog offe
 
 ## cloud
 
-1. hashicorp/agent-skills:terraform-style-guide
-2. hashicorp/agent-skills:terraform-test
-3. hashicorp/agent-skills:terraform-stacks
-4. hashicorp/agent-skills:terraform-policy
-5. hashicorp/agent-skills:aws-ami-builder
-6. hashicorp/agent-skills:azure-image-builder
-7. hashicorp/agent-skills:azure-verified-modules
-8. cloudflare/skills:cloudflare
-9. cloudflare/skills:wrangler
-10. cloudflare/skills:workers-best-practices
-11. cloudflare/skills:durable-objects
-12. cloudflare/skills:agents-sdk
-13. mcp:terraform
-14. mcp:cloudflare
+Tags: mcp
+
+1. hashicorp/agent-skills: terraform-style-guide, terraform-test, terraform-stacks, terraform-policy, aws-ami-builder, azure-image-builder, azure-verified-modules
+2. cloudflare/skills: cloudflare, wrangler, workers-best-practices, durable-objects, agents-sdk
+3. mcp:terraform
+4. mcp:cloudflare
 
 ## ios
 
-1. using-tuist-generated-projects
-2. debug-generated-project
-3. fix-flaky-tests
+Tags: apple, swift
+
+1. tuist/agent-skills: using-tuist-generated-projects, debug-generated-project, fix-flaky-tests
+2. mindrally/skills: swift, swiftui-development
 
 # Helpers
 

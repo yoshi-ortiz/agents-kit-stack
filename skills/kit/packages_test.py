@@ -264,6 +264,60 @@ class KitTest(unittest.TestCase):
                 "antigravity=1/1 core, 1/1 aliases",
             ])
 
+    def test_pack_tags_validate_and_filter_skills(self):
+        import io
+        from contextlib import redirect_stdout
+
+        base = (
+            "# Agents\n1. codex\n"
+            "# Tags\n1. apple\n2. ios\n3. swift\n"
+            "# Batteries included\n"
+            "| Source | Skills | Tags |\n"
+            "| --- | --- | --- |\n"
+            "| [Tuist](https://github.com/tuist/agent-skills) | all | apple, ios |\n"
+            "# Domains\n"
+            "## ios\n"
+            "Tags: apple, swift\n"
+            "1. tuist/agent-skills: fix-flaky-tests, debug-generated-project\n"
+        )
+        pack = K.Pack(base)
+        self.assertEqual(pack.tags, ["apple", "ios", "swift"])
+        self.assertEqual(pack.repo_tags["tuist/agent-skills"], {"apple", "ios"})
+        self.assertEqual(pack.domain_tags["ios"], {"apple", "swift"})
+        self.assertEqual(pack.domains["ios"], ["tuist/agent-skills:fix-flaky-tests", "tuist/agent-skills:debug-generated-project"])
+
+        with self.assertRaises(SystemExit):
+            K.Pack(base + "Tags: undeclared\n")
+        with self.assertRaises(SystemExit):
+            K.Pack(base.replace("| apple, ios |", "| Bad_Tag |"))
+
+        index = self.h / "index.json"
+        index.write_text(json.dumps({
+            "tuist/agent-skills": {"sha": "1", "skills": {
+                "using-tuist-generated-projects": 10, "fix-flaky-tests": 10, "debug-generated-project": 10}}
+        }))
+        with mock.patch.object(K, "INDEX", index):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(K.use(pack, ["apple"]), 0)
+            out = buf.getvalue()
+            self.assertIn("domains: ios", out)
+            self.assertIn("/tuist:using-tuist-generated-projects", out)
+            self.assertIn("/tuist:fix-flaky-tests", out)
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(K.filter_tags(pack, ["apple", "swift"]), 0)
+            out = buf.getvalue()
+            self.assertIn("/tuist:fix-flaky-tests", out)
+            self.assertNotIn("/tuist:using-tuist-generated-projects", out)
+
+            (K.MARKET / ".claude-plugin").mkdir(parents=True, exist_ok=True)
+            (K.MARKET / ".claude-plugin/marketplace.json").write_text(json.dumps({"plugins": []}))
+            with mock.patch.object(K, "repository_skills", return_value={}):
+                problems, _ = K.agent_coverage(pack)
+            self.assertTrue(any("unpublished skill(s)" in p and "tuist:fix-flaky-tests" in p for p in problems))
+
 
 if __name__ == "__main__":
     unittest.main()

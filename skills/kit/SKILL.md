@@ -11,7 +11,8 @@ description: Load any skill from the Kit catalog on demand without preloading it
 | --- | --- | --- |
 | `kit` | `K` | Report the `ok` or `FAIL` lines. On `first run`, run `K kit-starter-pack`. |
 | `kit-starter-pack` | `K kit-starter-pack` | Report the last line. |
-| `kit <skill>` or `kit <publisher>:<skill>` | `K use <skill>` with the supplied name | Follow the printed skill. Resolve its relative paths from the printed `dir`. |
+| `kit <skill>` or `kit <publisher>:<skill>` | `K use <skill>` with the supplied name | Follow the printed skill (or report matching skills if it is a tag). Resolve relative paths from the printed `dir`. |
+| `kit tag [<tag>...]` or `kit <tag>` | `K tag <tag>...` | Report the matching skills and domains (or list all tags when none given). |
 | `kit domain <domain>`, or a declared domain such as `kit cloud` | `K domain <domain>` | Report the project MCP servers and available skill commands. |
 | `kit add <github url or owner/repo>` | `K add <url>` | Then run `K kit-starter-pack`. |
 | `kit install <skill>` | `K <skill>` | Install in the project for native discovery. |
