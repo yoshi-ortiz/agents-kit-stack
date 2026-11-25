@@ -318,6 +318,18 @@ class KitTest(unittest.TestCase):
                 problems, _ = K.agent_coverage(pack)
             self.assertTrue(any("unpublished skill(s)" in p and "tuist:fix-flaky-tests" in p for p in problems))
 
+    def test_index_one_uses_cache_when_offline(self):
+        cached = {"sha": "abc", "skills": {"demo": 10}}
+        fail = subprocess.CompletedProcess(["git"], 128, "", "offline")
+        with mock.patch.object(K, "run", return_value=fail):
+            _, entry, err = K.index_one("o/r", cached)
+            self.assertIsNone(entry)
+            self.assertIn("does not resolve", err)
+            (K.CACHE / "o@r").mkdir(parents=True)
+            _, entry, err = K.index_one("o/r", cached)
+            self.assertEqual(entry, cached)
+            self.assertIsNone(err)
+
 
 if __name__ == "__main__":
     unittest.main()

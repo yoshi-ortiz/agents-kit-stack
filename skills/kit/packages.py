@@ -271,13 +271,16 @@ def repository_skills():
 
 def index_one(repo, cached):
     url = f"https://github.com/{repo}.git"
+    dest = CACHE / repo.replace("/", "@")
     head = run(["git", "ls-remote", url, "HEAD"], capture_output=True, text=True)
     sha = head.stdout.split()[0] if head.returncode == 0 and head.stdout else None
     if not sha:
+        if cached.get("sha") and cached.get("skills") and dest.is_dir():
+            print(f"offline: using cached {repo}", flush=True)
+            return repo, cached, None
         return repo, None, f"{repo}: does not resolve at {url}"
     if cached.get("sha") == sha:
         return repo, cached, None
-    dest = CACHE / repo.replace("/", "@")
     if (dest / ".git").is_dir():
         steps = [["git", "-C", str(dest), "fetch", "--depth", "1", "--quiet", "origin", "HEAD"],
                  ["git", "-C", str(dest), "reset", "--hard", "--quiet", "FETCH_HEAD"]]
@@ -1349,7 +1352,11 @@ def dev_sync(args, dry):
             link.parent.mkdir(parents=True, exist_ok=True)
             link.symlink_to(target, target_is_directory=True)
     print(f"ok: linked {len(sources)} local skills: {', '.join(sources)}", flush=True)
-    return main(["kit-starter-pack"])
+    main(["kit-starter-pack"])
+    cov_problems, cov_summary = agent_coverage(Pack(PACK.read_text()))
+    gate(cov_problems)
+    print("ok: agents: " + "; ".join(cov_summary), flush=True)
+    return 0
 
 
 def main(argv):
