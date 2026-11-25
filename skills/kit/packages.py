@@ -8,7 +8,7 @@
   packages.py verify --strict-projection  also fail on nonzero Claude plugin token estimates
   packages.py prune [<plugin>...]      list unused @kit plugins; turn off only the ones named, in ~/.claude/settings.json
   packages.py portable                refresh shared skill commands from the published catalog
-  packages.py dev-sync [--allow-main] [--local-only]  sync repo and catalog skills
+  packages.py dev-sync [--push] [--allow-main] [--local-only]  sync repo and catalog skills locally (add --push to push)
   packages.py use <skill>...           print a catalog skill from the index, so it enters the context only when called
   packages.py tag [<tag>...]           list declared PACK.md tags or filter catalog skills by one or more tags
   packages.py tools                    deny PACK.md `# Tools` in ~/.claude/settings.json, so no session loads them
@@ -1282,9 +1282,10 @@ def export(pack, names, is_global):
 
 def dev_sync(args, dry):
     flags = set(args)
-    gate(["usage: packages.py dev-sync [--allow-main] [--local-only] [--dry-run]"]
-         if flags - {"--allow-main", "--local-only"} or len(flags) != len(args) else [])
-    local_only = "--local-only" in flags
+    gate(["usage: packages.py dev-sync [--push] [--allow-main] [--local-only] [--dry-run]"]
+         if flags - {"--push", "--allow-main", "--local-only"} or len(flags) != len(args)
+         or {"--push", "--local-only"} <= flags else [])
+    push_remote = "--push" in flags
     skills = Path(__file__).resolve().parent.parent
     git = ["git", "-C", str(skills.parent)]
     top = run([*git, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
@@ -1314,22 +1315,27 @@ def dev_sync(args, dry):
           and not stub(link)
           and not (link.is_symlink() and link.resolve() == target.resolve())])
     if dry:
-        if not local_only:
+        if push_remote:
             print(f"would push committed {branch} to origin/{branch}")
         print(f"would link {', '.join(sources)} and refresh the Kit catalog")
         return 0
 
-    if not local_only:
+    if push_remote:
         status = run([*git, "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True)
         new_skill_files = run([*git, "ls-files", "--others", "--exclude-standard", "--",
                                *(str(p.relative_to(skills.parent)) for p in sources.values())],
                               capture_output=True, text=True)
-        gate(["commit tracked changes and new files in skill packages, or use --local-only"]
+        gate(["commit tracked changes and new files in skill packages, or omit --push"]
              if status.returncode or new_skill_files.returncode or status.stdout or new_skill_files.stdout else [])
         commit = run([*git, "rev-parse", "--verify", "HEAD"], capture_output=True, text=True)
         gate(["could not resolve the current commit"] if commit.returncode else [])
         push = run([*git, "push", "--no-follow-tags", "origin", f"{commit.stdout.strip()}:refs/heads/{branch}"])
-        gate([f"push to origin/{branch} failed; use --local-only to update this machine"] if push.returncode else [])
+        if push.returncode:
+            remote_ref = run([*git, "rev-parse", "--verify", f"refs/remotes/origin/{branch}"], capture_output=True)
+            unrelated = (remote_ref.returncode == 0
+                         and run([*git, "merge-base", "HEAD", f"refs/remotes/origin/{branch}"], capture_output=True).returncode != 0)
+            gate([f"origin/{branch} has unrelated history to local {branch} (orphan branch); realign origin/{branch} or omit --push"
+                  if unrelated else f"push to origin/{branch} failed; pull/rebase origin/{branch} or omit --push"])
         print(f"ok: pushed origin/{branch}", flush=True)
     for root in (shared, *extra_roots):
         if root.is_dir():

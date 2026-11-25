@@ -188,14 +188,14 @@ class KitTest(unittest.TestCase):
             untracked = repo / "skills/new-skill/new.py"
             untracked.touch()
             with self.assertRaises(SystemExit):
-                K.dev_sync([], False)
+                K.dev_sync(["--push"], False)
             refresh.assert_not_called()
             gemini = self.h / ".gemini/config/skills"
             (gemini / "kit").mkdir(parents=True)
             (gemini / "kit/.kit-stub").write_text("kit-portable-v1\n")
             stale = gemini / "stale-skill"
             stale.symlink_to(self.h / ".agents/skills/stale-skill")
-            self.assertEqual(K.dev_sync(["--local-only"], False), 0)
+            self.assertEqual(K.dev_sync([], False), 0)
             self.assertTrue((self.h / ".claude/skills/new-skill").is_symlink())
             self.assertTrue((self.h / ".cursor/skills/new-skill").is_symlink())
             self.assertTrue((gemini / "new-skill").is_symlink())
@@ -204,7 +204,7 @@ class KitTest(unittest.TestCase):
             self.assertEqual(subprocess.check_output(["git", "-C", str(remote), "for-each-ref"]), b"")
             untracked.unlink()
             refresh.reset_mock()
-            self.assertEqual(K.dev_sync([], False), 0)
+            self.assertEqual(K.dev_sync(["--push"], False), 0)
             refresh.assert_called_once_with(["kit-starter-pack"])
             self.assertEqual(link.resolve(), (repo / "skills/dev-sync").resolve())
             pushed = subprocess.check_output(["git", "-C", str(remote), "for-each-ref",

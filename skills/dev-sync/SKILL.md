@@ -1,6 +1,6 @@
 ---
 name: dev-sync
-description: Push committed Yoshi Stack changes and refresh Kit skills across supported agents on this machine.
+description: Refresh Kit skills across supported agents on this machine, with optional --push for committed Yoshi Stack changes.
 ---
 
 # Dev Sync
@@ -12,8 +12,8 @@ absolute path in the command:
 python3 /path/to/skills/kit/packages.py dev-sync
 ```
 
-Use `--dry-run` to preview or `--local-only` to refresh without pushing.
-Each sync picks up every skill with a `skills/<name>/SKILL.md` entrypoint.
-On `main`, pass `--allow-main` only if the user
-explicitly requested a main sync. Report the push and refresh results. If a
-step fails, report it and stop. Never force-push.
+Syncs locally by default. Pass `--push` to push committed changes first, or
+`--dry-run` to preview. Each sync picks up every skill with a
+`skills/<name>/SKILL.md` entrypoint. On `main`, pass `--allow-main` only if
+the user explicitly requested a main sync. Report the refresh (and push, if
+requested) results. If a step fails, report it and stop. Never force-push.

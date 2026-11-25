@@ -24,8 +24,8 @@ Agent harness core that makes a checkout ready to work across every configured a
 
 - **Unit tests**: `python3 -m unittest skills/kit/packages_test.py skills/determdinistic/determdinistic_test.py`
 - **Verify (gates + per-agent coverage)**: `python3 skills/kit/packages.py`
-- **Local sync (all agents)**: `python3 skills/kit/packages.py dev-sync --local-only`
-- **Push + sync (`dev` branch)**: `python3 skills/kit/packages.py dev-sync`
+- **Local sync (all agents, default)**: `python3 skills/kit/packages.py dev-sync`
+- **Push + sync (`dev` branch)**: `python3 skills/kit/packages.py dev-sync --push`
 - **Codex startup context probe**: `codex debug prompt-input "hello"`
 
 ## Boundaries
