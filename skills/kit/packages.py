@@ -5,7 +5,7 @@
   packages.py kit-starter-pack         index the catalog and publish explicit-only plugins
   packages.py bigbang [<domain>...]    initialize Git if needed, index the catalog, configure domains (default core), `mise run stage0`
                                        (or `mise install`), start every stdio MCP server once, then verify
-  packages.py verify --strict-projection  also fail on nonzero Claude plugin token estimates
+  packages.py verify --strict-context  verify live Claude and Codex startup context (--strict-projection is an alias)
   packages.py prune [<plugin>...]      list unused @kit plugins; turn off only the ones named, in ~/.claude/settings.json
   packages.py portable                refresh shared skill commands from the published catalog
   packages.py dev-sync [--push] [--allow-main] [--local-only]  sync repo and catalog skills locally (add --push to push)
@@ -221,8 +221,19 @@ def frontmatter(path):
         elif line.startswith("description:"):
             desc = line[12:].strip()
             if desc in ("", ">", "|", ">-", "|-"):
-                desc = " ".join(x.strip() for x in fm[i + 1:] if x[:1] in (" ", "\t")).strip()
-            desc = desc.strip("'\"")
+                body = []
+                for x in fm[i + 1:]:
+                    if x and x[:1] not in (" ", "\t"):
+                        break
+                    body.append(x.strip())
+                desc = " ".join(body).strip()
+            elif desc.startswith('"'):
+                try:
+                    desc = json.loads(desc)
+                except ValueError:
+                    desc = desc.strip('"')
+            elif desc.startswith("'") and desc.endswith("'"):
+                desc = desc[1:-1].replace("''", "'")
     return name, desc, any(re.match(r"^\s+internal:\s*true\b", x) for x in fm)
 
 
@@ -581,24 +592,50 @@ def install(pack, tokens, is_global, dry):
     return 0
 
 
-def claude_projection():
-    if not shutil.which("claude"):
-        return ["Claude Code is required to check plugin token projections"]
-    result = run(["claude", "plugin", "list", "--json"], capture_output=True, text=True)
-    try:
-        plugins = [p["id"] for p in json.loads(result.stdout) if p["id"].endswith("@kit") and p.get("enabled")]
-    except (ValueError, TypeError, KeyError):
-        plugins = []
-    if result.returncode or not plugins:
-        return ["Could not read any enabled @kit plugins from Claude Code"]
+def startup_context(pack):
+    """Measure the host's loaded skill list, not plugin inventory cost estimates."""
+    core = set(repository_skills())
+    manifest = MARKET / ".claude-plugin/marketplace.json"
+    if not manifest.is_file():
+        return ["startup context: catalog not published; run kit-starter-pack"]
+    catalog = set()
+    for plugin in json.loads(manifest.read_text())["plugins"]:
+        for skill in (MARKET / plugin["source"] / "skills").glob("*/SKILL.md"):
+            catalog.update((f"{plugin['name']}:{skill.parent.name}", f"{plugin['name']}-{skill.parent.name}"))
     problems = []
-    for plugin in plugins:
-        details = run(["claude", "plugin", "details", plugin], capture_output=True, text=True)
-        cost = re.search(r"^\s*Always-on:\s*(.+)$", details.stdout, re.MULTILINE)
-        if details.returncode or not cost:
-            problems.append(f"{plugin}: could not read the always-on token projection")
-        elif not re.match(r"^~?0\s+tok\b", cost[1]):
-            problems.append(f"{plugin}: Claude Code projects {cost[1].strip()}")
+    for agent, cli, command in (
+        ("claude-code", "claude", ["-p", "/context", "--output-format", "json", "--no-session-persistence", "--strict-mcp-config"]),
+        ("codex", "codex", ["debug", "prompt-input", "hello"]),
+    ):
+        if agent not in pack.agents:
+            continue
+        if not shutil.which(cli):
+            problems.append(f"{agent}: CLI required for live startup context verification")
+            continue
+        result = run([cli, *command], capture_output=True, text=True)
+        try:
+            data = json.loads(result.stdout)
+            if result.returncode:
+                raise ValueError("probe failed")
+            if cli == "claude":
+                report = data["result"]
+                section = report.split("### Skills\n", 1)[1].split("\n### ", 1)[0]
+                loaded = set(re.findall(r"^\| ([^|]+?)\s*\|", section, re.MULTILINE))
+            else:
+                text = "\n".join(c.get("text", "") for item in data if item.get("type") == "message"
+                                 and item.get("role") == "developer" for c in item.get("content", []))
+                loaded = set(re.findall(r"^- ([\w:-]+): .*\(file: .+?/SKILL\.md\)", text, re.MULTILINE))
+            if not loaded:
+                raise ValueError("empty skill list")
+        except (ValueError, KeyError, TypeError, IndexError):
+            problems.append(f"{agent}: could not read live startup skill list")
+            continue
+        if missing := core - loaded:
+            problems.append(f"{agent}: core skills missing from live context: {', '.join(sorted(missing))}")
+        if leaked := catalog & loaded:
+            problems.append(f"{agent}: catalog skills loaded into startup context: {', '.join(sorted(leaked))}")
+        if not (core - loaded or catalog & loaded):
+            print(f"ok: {agent} live startup context: {len(core)} core skills, 0 catalog skills (0 catalog tokens)")
     return problems
 
 
@@ -679,6 +716,11 @@ def agent_coverage(pack):
         for plugin in plugins_meta
         for skill in sorted((MARKET / plugin["source"] / "skills").glob("*/SKILL.md"))
     ]
+    descriptions = {
+        f"{plugin['name']}-{skill.parent.name}": frontmatter(skill)[1]
+        for plugin in plugins_meta
+        for skill in (MARKET / plugin["source"] / "skills").glob("*/SKILL.md")
+    }
     problems, summary = [], []
     if manifest.is_file() and INDEX.is_file() and isinstance(getattr(pack, "rows", None), dict):
         try:
@@ -746,6 +788,12 @@ def agent_coverage(pack):
                 if missing_c:
                     problems.append(f"{agent}: missing {len(missing_c)}/{len(catalog)} catalog aliases in {root}. "
                                     "Run: python3 packages.py portable")
+                bad_descriptions = [n for n in catalog if (root / n / "SKILL.md").is_file()
+                                    and (not descriptions[n]
+                                         or frontmatter(root / n / "SKILL.md")[1] != descriptions[n])]
+                if bad_descriptions:
+                    problems.append(f"{agent}: {len(bad_descriptions)} catalog alias descriptions differ from their skills. "
+                                    "Run: python3 packages.py portable")
                 leaked_c = [
                     n for n in catalog
                     if (root / n / "SKILL.md").is_file()
@@ -768,7 +816,7 @@ def verify(pack, strict_projection=False):
     cov_problems, cov_summary = agent_coverage(pack)
     gate(problems + budget_problems + cov_problems + source_drift() + (tool_drift(pack) if INDEX.exists() else []))
     if strict_projection:
-        gate(claude_projection(), "Plugin projections are estimates. Measure startup context separately.")
+        gate(startup_context(pack))
     print(f"ok: skills CLI locks contain {count} skills and {listing} description bytes")
     print("ok: agents: " + "; ".join(cov_summary))
     idle = unused_plugins()
@@ -951,18 +999,21 @@ def portable():
             gate([f"{name}: duplicate or invalid portable command name"]
                  if name in commands or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name) or len(name) > 64 else [])
             path = skill.relative_to(HOME)
+            description = frontmatter(skill)[1]
+            gate([f"{skill}: missing catalog description"] if not description else [])
             commands[name] = (
                 f"Open `~/{path}` and follow that skill for the user's request. "
-                "Resolve its relative paths from that skill's directory."
+                "Resolve its relative paths from that skill's directory.", description
             )
 
     router = HOME / ".gemini/config/skills/kit"
-    install = {shared / name: (body, True) for name, body in commands.items()}
+    install = {shared / name: (body, True, description) for name, (body, description) in commands.items()}
     if not (router.is_symlink() and router.resolve() == (shared / "kit").resolve()):
         install[router] = (
             "Open `~/.agents/skills/kit/SKILL.md` and follow its command table. "
             "Run `packages.py` from that skill's directory using its absolute path.",
             False,
+            "Load a Kit catalog skill on demand or configure a project domain.",
         )
     marker = "kit-portable-v1\n"
 
@@ -972,11 +1023,11 @@ def portable():
 
     gate([f"{folder}: another skill already owns this path"
           for folder in install if (folder.exists() or folder.is_symlink()) and not owned(folder)])
-    for folder, (body, explicit) in install.items():
+    for folder, (body, explicit, description) in install.items():
         folder.mkdir(parents=True, exist_ok=True)
         (folder / ".kit-stub").write_text(marker)
         (folder / "SKILL.md").write_text(
-            f"---\nname: {folder.name}\ndescription: Open the Kit skill {folder.name}.\n"
+            f"---\nname: {folder.name}\ndescription: {json.dumps(description, ensure_ascii=False)}\n"
             + ("disable-model-invocation: true\n" if explicit else "")
             + f"---\n\n{body}\n"
         )
@@ -1364,8 +1415,8 @@ def main(argv):
     argv = [a for a in argv if a not in ("--dry-run", "-g", "--global")]
     gate([f"{t} not found; kit does not install runtimes" for t in ("npx", "git") if not shutil.which(t)])
     pack = Pack(PACK.read_text())
-    if not argv or argv in (["verify"], ["verify", "--strict-projection"]):
-        return verify(pack, strict_projection="--strict-projection" in argv)
+    if not argv or argv in (["verify"], ["verify", "--strict-projection"], ["verify", "--strict-context"]):
+        return verify(pack, strict_projection=len(argv) == 2)
     verb, rest = argv[0], argv[1:]
     if verb == "dev-sync":
         return dev_sync(rest, dry)

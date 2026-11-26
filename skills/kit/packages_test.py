@@ -239,7 +239,7 @@ class KitTest(unittest.TestCase):
         core.write_text("---\nname: kit\ndescription: Router.\n---\n")
         skill = K.MARKET / "plugins/pub/skills/demo/SKILL.md"
         skill.parent.mkdir(parents=True)
-        skill.write_text("---\nname: demo\ndescription: Demo.\n---\n")
+        skill.write_text('---\nname: demo\ndescription: >-\n  pub: Build a "demo".\n  Use when prototyping.\nmetadata:\n  publisher: pub\n---\n')
         (K.MARKET / ".claude-plugin").mkdir(parents=True)
         (K.MARKET / ".claude-plugin/marketplace.json").write_text(json.dumps({
             "plugins": [{"name": "pub", "source": "./plugins/pub"}]
@@ -256,6 +256,8 @@ class KitTest(unittest.TestCase):
             self.assertTrue((self.h / ".cursor/skills/pub-demo").is_symlink())
             self.assertTrue((self.h / ".gemini/config/skills/pub-demo").is_symlink())
             self.assertIn("disable-model-invocation: true", (self.h / ".agents/skills/pub-demo/SKILL.md").read_text())
+            self.assertEqual(K.frontmatter(self.h / ".agents/skills/pub-demo/SKILL.md")[1],
+                             'pub: Build a "demo". Use when prototyping.')
             problems, summary = K.agent_coverage(pack)
             self.assertEqual(problems, [])
             self.assertEqual(summary, [
@@ -263,6 +265,42 @@ class KitTest(unittest.TestCase):
                 "zed=1/1 core, 1/1 aliases",
                 "antigravity=1/1 core, 1/1 aliases",
             ])
+            alias = self.h / ".agents/skills/pub-demo/SKILL.md"
+            alias.write_text(alias.read_text().replace('pub: Build a \\"demo\\". Use when prototyping.', 'Open the Kit skill pub-demo.'))
+            problems, _ = K.agent_coverage(pack)
+            self.assertTrue(any("alias descriptions differ" in p for p in problems))
+
+    def test_startup_context_checks_live_lists_and_fails_closed(self):
+        manifest = K.MARKET / ".claude-plugin/marketplace.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(json.dumps({"plugins": [{"name": "pub", "source": "./plugins/pub"}]}))
+        skill = K.MARKET / "plugins/pub/skills/demo/SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.touch()
+        pack = mock.Mock(agents=["claude-code", "codex"])
+
+        def probe(cmd, **kwargs):
+            if cmd[0] == "claude":
+                data = {"result": "### Skills\n\n| Skill | Source | Tokens |\n| kit | User | ~110 |\n" + claude_extra}
+            else:
+                data = [{"type": "message", "role": "developer", "content": [{"text":
+                    "### Available skills\n- kit: Route requests. (file: /home/.agents/skills/kit/SKILL.md)\n" + codex_extra}]}]
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(data), "")
+
+        claude_extra = codex_extra = ""
+        with (mock.patch.object(K, "repository_skills", return_value={"kit": self.h}),
+              mock.patch.object(K.shutil, "which", return_value=True),
+              mock.patch.object(K, "run", side_effect=probe)):
+            self.assertEqual(K.startup_context(pack), [])
+            claude_extra = "| pub:demo | Plugin | ~100 |\n"
+            codex_extra = "- pub:demo: Demo. (file: /home/plugins/demo/SKILL.md)\n"
+            self.assertEqual(len([p for p in K.startup_context(pack) if "catalog skills loaded" in p]), 2)
+            with mock.patch.object(K, "repository_skills", return_value={"missing": self.h}):
+                self.assertEqual(len([p for p in K.startup_context(pack) if "core skills missing" in p]), 2)
+        with (mock.patch.object(K, "repository_skills", return_value={"kit": self.h}),
+              mock.patch.object(K.shutil, "which", return_value=True),
+              mock.patch.object(K, "run", return_value=subprocess.CompletedProcess([], 0, "{}", ""))):
+            self.assertEqual(len(K.startup_context(pack)), 2)
 
     def test_pack_tags_validate_and_filter_skills(self):
         import io

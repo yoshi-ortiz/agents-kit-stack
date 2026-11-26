@@ -25,4 +25,4 @@ Rules:
 1. `use` says a name is offered twice: run `K use owner/repo:<skill>` with the source the user means.
 2. After setup, Claude Code has `/publisher:skill`, Codex has `$publisher:skill`, Cursor and Zed have `/publisher-skill`, and Pi has `/skill:publisher-skill`. In Antigravity, use `/kit publisher:skill`.
 3. Read [PACK.md](PACK.md) when editing the catalog. Put skill repositories under `# Batteries included` and MCP endpoints under `# MCP servers`. A domain activates only the servers it lists as `mcp:name`.
-4. For a release check, run `K verify --strict-projection`. Compare startup context in fresh sessions separately from the Claude Code token estimate.
+4. For a release check, run `K verify --strict-context` (`--strict-projection` remains an alias). It probes fresh Claude and Codex startup context: every core skill must appear and no catalog skill may appear. Plugin inventory token estimates do not measure loaded context.

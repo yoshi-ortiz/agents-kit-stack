@@ -2,6 +2,22 @@
 
 Record of product value breaches where Kit failed its core promise (skills callable across every configured agent without preloading the catalog), traced to root causes and structural fixes.
 
+## 2026-11-25: Placeholder descriptions and a false zero-context failure
+
+### Symptom
+- Non-Codex skill pickers displayed “Open the Kit skill…” instead of the skill's purpose and invocation conditions.
+- The release gate failed for all 17 Kit publishers even though catalog skills were explicit-only.
+
+### Root Causes
+1. `portable()` generated generic descriptions for every alias instead of preserving the published skill description. Coverage checked file presence and invocation policy, allowing unusable picker descriptions to pass.
+2. `claude_projection()` treated `claude plugin details` inventory estimates as live context measurements. A fresh `claude -p /context` listed the core skills and no Kit catalog skills, while plugin details estimated a cost for every explicit-only skill.
+3. The description reader included unrelated indented metadata after block descriptions, making it unsafe to reuse those descriptions without correcting the parser.
+
+### Structural Fixes
+1. Portable aliases preserve published descriptions, including quoted and folded descriptions. Per-agent coverage rejects description drift, as well as missing files and invocation policy drift.
+2. `verify --strict-context` probes fresh Claude and Codex skill lists, requiring every first-party core skill and rejecting any loaded catalog skill. Unreadable probe output fails verification. `--strict-projection` uses the same live check for compatibility; the zero-context requirement remains enforced.
+3. Regression tests cover description preservation and drift, actual catalog leaks, missing core skills, and malformed context reports. The cheap release signal now reports the live core and catalog counts per host.
+
 ## 2026-11-23: Skills invisible or missing across non-Claude agents
 
 ### Symptom
