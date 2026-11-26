@@ -103,6 +103,7 @@ A row here that does not parse fails the run.
 | [benjitaylor/skills](https://github.com/benjitaylor/skills) | all | design, web |
 | <img src="https://github.com/mindrally.png" width="20"> [mindrally](https://github.com/mindrally/skills) | bootstrap, swift, swiftui-development | - |
 | <img src="https://github.com/digitalsamba.png" width="20"> [Digital Samba](https://github.com/digitalsamba/claude-code-video-toolkit) | ffmpeg | media |
+| <img src="https://github.com/vercel-labs.png" width="20"> [Vercel Labs](https://github.com/vercel-labs/agent-desktop) | all | workflow |
 
 # Domains
 
