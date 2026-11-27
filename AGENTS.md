@@ -6,7 +6,7 @@ Agent harness core that makes a checkout ready to work across every configured a
 
 1. **Multi-agent parity**: Every agent in `skills/kit/PACK.md` (`# Agents`: `claude-code`, `codex`, `pi`, `cursor`, `zed`, `antigravity`) must receive all first-party core skills (`skills/*`) and catalog access. Never ship a Claude-only fix.
 2. **Zero-context catalog**: Catalog skills (`PACK.md # Batteries included`) load on demand. Never preload the full catalog into startup context on hosts that support explicit-only invocation (`disable-model-invocation: true` / `allow_implicit_invocation: false`).
-3. **Model-visible harness core**: First-party skills under `skills/` (`kit`, `bigbang`, `determdinistic`, `dev-sync`) MUST remain model-invocable (no `disable-model-invocation: true`, `allow_implicit_invocation: true`) so every agent sees the harness core and can route prose requests through `kit`.
+3. **Model-visible harness core**: First-party skills at `skills/<name>/SKILL.md` (`kit`, `bigbang`, `determdinistic`) MUST remain model-invocable (no `disable-model-invocation: true`, `allow_implicit_invocation: true`) so every agent sees the harness core and can route prose requests through `kit`. Internal dev-env tooling lives in a group, `skills/<group>/<skill>/SKILL.md` (`kit-dev:ota-ci`), and Kit publishes it like a catalog publisher: explicit-only, zero startup tokens, on every agent.
 4. **No false-positive verification**: Never claim skills are installed based only on lockfiles or a router stub. Verify each agent's real global skill directory and live prompt behavior.
 
 ## Host Discovery & Invocation Matrix
@@ -22,7 +22,7 @@ Agent harness core that makes a checkout ready to work across every configured a
 
 ## Commands
 
-- **Unit tests**: `python3 -m unittest skills/kit/packages_test.py skills/determdinistic/determdinistic_test.py`
+- **Unit tests**: `python3 -m unittest skills/kit/packages_test.py skills/determdinistic/determdinistic_test.py skills/bigbang/modules_test.py`
 - **Verify (gates + per-agent coverage)**: `python3 skills/kit/packages.py`
 - **Local sync (all agents, default)**: `python3 skills/kit/packages.py dev-sync`
 - **Push + sync (`dev` branch)**: `python3 skills/kit/packages.py dev-sync --push`

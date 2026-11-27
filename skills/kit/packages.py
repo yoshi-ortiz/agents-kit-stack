@@ -3,8 +3,8 @@
 
   packages.py                          verify: gate both scopes, install nothing
   packages.py kit-starter-pack         index the catalog and publish explicit-only plugins
-  packages.py bigbang [<domain>...]    initialize Git if needed, index the catalog, configure domains (default core), `mise run stage0`
-                                       (or `mise install`), start every stdio MCP server once, then verify
+  packages.py bigbang [<domain>...] [--paid] [--sync] [--only <module>]   set up, rail, gate, burn down and audit this
+                                       checkout (default core); `bigbang ledger ...`, `bigbang intake <file>` (skills/bigbang)
   packages.py verify --strict-context  verify live Claude and Codex startup context (--strict-projection is an alias)
   packages.py prune [<plugin>...]      list unused @kit plugins; turn off only the ones named, in ~/.claude/settings.json
   packages.py portable                refresh shared skill commands from the published catalog
@@ -38,7 +38,9 @@ import tempfile
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 CLI_VERSION = "1.7.4"  # npm `skills`, published 2026-10-19. Pin, never `latest`.
 CLI = ["npx", "--yes", f"skills@{CLI_VERSION}"]
@@ -73,6 +75,29 @@ TAG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 TAGS_LINE = re.compile(r"^\s*Tags:\s*(.+)$", re.IGNORECASE)
 
 
+# Bigbang modules a domain may select with `module:<name>`; always-on modules are never listed.
+# Kept here so parsing PACK.md never imports skills/bigbang/modules.py (which checks it matches).
+BIGBANG_MODULES = ("guardrail", "gate", "burndown", "loop", "index", "shots", "goals", "babysitter", "tanks")
+
+
+@dataclass(frozen=True)
+class Item:
+    """One `PACK.md # Domains` entry: a skill token, an `mcp:<server>`, or a `module:<bigbang module>`."""
+    kind: Literal["skill", "mcp", "module"]
+    name: str
+
+    @classmethod
+    def parse(cls, text):
+        prefix, sep, rest = text.partition(":")
+        if sep and prefix in ("mcp", "module"):
+            return cls(prefix, rest)
+        return cls("skill", text)
+
+
+def skills_only(items):
+    return [i for i in items if Item.parse(i).kind == "skill"]
+
+
 def gate(problems, hint=""):
     if not problems:
         return
@@ -99,16 +124,31 @@ class Pack:
     def __init__(self, text):
         self.text, self.rows, self.domains, self.agents, problems = text, {}, {}, [], []
         self.owned, self.publisher, self.tools, self.mcp = set(), {}, [], {}
+        self.items = {}  # domain -> [Item]; self.domains keeps the raw entry strings
+        self.compass = {}  # context compass layer -> [Item] (bigbang modules only)
         self.tags, self.repo_tags, self.domain_tags, used_tags = [], {}, {}, []
         section = domain = last_repo = ""
         for n, line in enumerate(text.splitlines(), 1):
             if line.startswith("# "):
                 section, domain, last_repo = line[2:].strip().lower(), "", ""
+            elif line.startswith("## ") and section == "context compass":
+                domain = line[3:].strip().lower()
+                self.compass[domain] = []
+            elif section == "context compass" and re.match(r"^\s*\d+\.", line):
+                item = Item.parse(re.sub(r"^\s*\d+\.\s+", "", line).strip())
+                if not domain:
+                    problems.append(f"PACK.md:{n} is a list item outside a `## layer`")
+                elif item.kind != "module" or item.name not in BIGBANG_MODULES:
+                    problems.append(f"PACK.md:{n} {item.kind}:{item.name} is not a bigbang module "
+                                    f"({', '.join(BIGBANG_MODULES)})")
+                else:
+                    self.compass[domain].append(item)
             elif line.startswith("## ") and section == "domains":
                 domain = line[3:].strip().lower()
                 if domain in self.domains:
                     problems.append(f"PACK.md:{n} repeats domain {domain}")
                 self.domains[domain] = []
+                self.items[domain] = []
                 self.domain_tags[domain] = set()
             elif (tm := TAGS_LINE.match(line)) and section in ("batteries included", "domains"):
                 tags = [t.strip() for t in re.split(r"[,\s]+", tm.group(1)) if t.strip()]
@@ -184,9 +224,16 @@ class Pack:
                     body = re.sub(r"^\s*\d+\.\s+", "", line).strip()
                     if ": " in body:
                         prefix, rest = body.split(":", 1)
-                        self.domains[domain].extend(f"{prefix.strip()}:{s}" for s in re.split(r"[,\s]+", rest) if s)
+                        entries = [f"{prefix.strip()}:{s}" for s in re.split(r"[,\s]+", rest) if s]
                     else:
-                        self.domains[domain].append(m.group(1))
+                        entries = [m.group(1)]
+                    for entry in entries:
+                        item = Item.parse(entry)
+                        if item.kind == "module":
+                            problems.append(f"PACK.md:{n} module:{item.name} belongs under # Context compass; "
+                                            "domains name stacks")
+                        self.items.setdefault(domain, []).append(item)
+                    self.domains[domain].extend(entries)
         declared = set(self.tags)
         for n, t in used_tags:
             if not TAG.fullmatch(t):
@@ -335,7 +382,7 @@ def resolve(pack, tokens, offline=False):
     items = []
     for t in tokens:
         items += pack.domains[t.lower()] if t.lower() in pack.domains else [t]
-    items = [i for i in items if not i.startswith("mcp:")]  # servers, not skills: see domain()
+    items = skills_only(items)  # servers and bigbang modules are not skills: see domain(), bigbang()
     aliases = {slug(p): pack.repo(r) for r, p in pack.publisher.items()}
 
     def source(prefix):
@@ -930,7 +977,7 @@ def explicit_policy(path, implicit=False):
     path.write_text(yaml)
 
 
-def write_skill(d, src, publisher, repo):
+def write_skill(d, src, publisher, repo, source_url=None):
     """Package a skill with explicit-only invocation policies for both plugin hosts.
     Claude Code: `disable-model-invocation: true` keeps /publisher:skill at ~0 startup tokens.
     Codex: agents/openai.yaml `policy.allow_implicit_invocation: false` keeps $publisher:skill at 0 startup tokens."""
@@ -955,8 +1002,27 @@ def write_skill(d, src, publisher, repo):
     explicit_policy(policy, implicit=False)
     skill = d / "SKILL.md"
     skill.write_text("\n".join(["---", "disable-model-invocation: true", *fm, *lines[end:]]))
-    stamp(skill, {"publisher": publisher, "source": repo, "source-url": f"https://github.com/{repo}"}, True)
+    stamp(skill, {"publisher": publisher, "source": repo, "source-url": source_url or f"https://github.com/{repo}"}, True)
     return True
+
+
+def local_groups():
+    """Internal tooling published like a catalog publisher: skills/<group>/<skill>/SKILL.md, where the group
+    directory has no SKILL.md of its own (skills/kit-dev/ota-ci is `/kit-dev:ota-ci`). Explicit-only, so it costs
+    no startup context; dev-env tooling for testing this checkout, not part of the harness core."""
+    root = Path(__file__).resolve().parent.parent
+    groups = {}
+    for group in sorted(d for d in root.iterdir() if d.is_dir() and not (d / "SKILL.md").exists()):
+        skills = {}
+        for manifest in sorted(group.glob("*/SKILL.md")):
+            name, description, internal = frontmatter(manifest)
+            gate([f"{manifest}: expected a skill named {manifest.parent.name} with a description"]
+                 if not internal and (name != manifest.parent.name or name != slug(name) or not description) else [])
+            if not internal:
+                skills[name] = manifest
+        if skills:
+            groups[group.name] = skills
+    return groups
 
 
 def build_market(pack, offered):
@@ -974,6 +1040,18 @@ def build_market(pack, offered):
         meta = {"name": name, "version": "1.0.0",
                 "description": f"{made} explicit-only {publisher} skills from github.com/{repo}.",
                 "author": {"name": publisher}, "repository": f"https://github.com/{repo}"}
+        (base / ".claude-plugin").mkdir(parents=True)
+        (base / ".claude-plugin/plugin.json").write_text(json.dumps(meta, indent=2))
+        (base / ".codex-plugin").mkdir()
+        (base / ".codex-plugin/plugin.json").write_text(json.dumps({**meta, "skills": "./skills"}, indent=2))
+        plugins.append({"name": name, "source": f"./plugins/{name}", "description": meta["description"], "_count": made})
+    for group, skills in local_groups().items():
+        name, base = slug(group), MARKET / "plugins" / slug(group)
+        gate([f"skills/{group}: plugin name {name} is already a catalog publisher"] if base.exists() else [])
+        made = sum(write_skill(base / "skills" / n, path, group, f"skills/{group}", str(path.parent))
+                   for n, path in skills.items())
+        meta = {"name": name, "version": "1.0.0", "description": f"{made} explicit-only internal {group} skills.",
+                "author": {"name": "kit"}}
         (base / ".claude-plugin").mkdir(parents=True)
         (base / ".claude-plugin/plugin.json").write_text(json.dumps(meta, indent=2))
         (base / ".codex-plugin").mkdir()
@@ -1148,13 +1226,13 @@ def domain(pack, names, dry, *, root=None):
     gate([f"{n}: not a domain. Domains: {', '.join(pack.domains)}" for n in names if n.lower() not in pack.domains]
          or ([] if names else [f"name a domain: {', '.join(pack.domains)}"]))
     items = [i for n in names for i in pack.domains[n.lower()]]
-    servers = list(dict.fromkeys(i[4:] for i in items if i.startswith("mcp:")))
+    servers = list(dict.fromkeys(Item.parse(i).name for i in items if Item.parse(i).kind == "mcp"))
     gate([f"mcp:{s} is not under PACK.md # MCP servers" for s in servers if s not in pack.mcp])
     if dry and not INDEX.exists():
         print("would list domain skills after indexing the catalog")
         skills = {}
     else:
-        skills = resolve(pack, [i for i in items if not i.startswith("mcp:")], offline=True)
+        skills = resolve(pack, skills_only(items), offline=True)
     root = root if root is not None else Scope(False).root
     toml = root / ".codex/config.toml"
     for s in servers:
@@ -1206,41 +1284,14 @@ def mcp_starts(spec, timeout=60, *, cwd=None):
     return (err.strip().splitlines() or ["no initialize reply"])[-1][:300]
 
 
-def bigbang(pack, names, dry):
-    """One command per checkout: catalog, domains, the project's stage 0, then proof that its MCP servers start."""
-    names = names or ["core"]
-    gate([f"{n}: not a domain. Domains: {', '.join(pack.domains)}" for n in names if n.lower() not in pack.domains])
-    top = run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
-    root = Path(top.stdout.strip()) if top.returncode == 0 else Path.cwd()
-    if top.returncode:
-        gate([f"could not open existing Git repository: {top.stderr.strip()}"]
-             if any((p / ".git").exists() or (p / ".git").is_symlink() for p in (root, *root.parents)) else [])
-        if dry:
-            print(f"would initialize Git in {root}")
-        else:
-            result = run(["git", "init", "--quiet"], cwd=root, capture_output=True, text=True)
-            gate([f"could not initialize Git in {root}: {result.stderr.strip()}"] if result.returncode else [])
-            print(f"ok: initialized Git in {root}")
-    if not INDEX.exists():
-        main(["kit-starter-pack"] + (["--dry-run"] if dry else []))
-    domain(pack, names, dry, root=root)
-    mise = next((root / n for n in ("mise.toml", ".mise.toml") if (root / n).is_file()), None)
-    if mise:
-        import tomllib
-        cmd = ["mise", "run", "stage0"] if "stage0" in tomllib.loads(mise.read_text()).get("tasks", {}) else ["mise", "install"]
-        print("$ " + shlex.join(cmd))
-        if not dry:
-            gate([] if shutil.which("mise") else ["mise not found; kit does not install runtimes"])
-            gate([f"{shlex.join(cmd)} failed"] if run(cmd, cwd=root).returncode else [])
-    if dry:
-        print("would check configured stdio MCP servers and run Kit verification")
-        return 0
-    config = root / ".mcp.json"
-    servers = json.loads(config.read_text()).get("mcpServers", {}) if config.exists() else {}
-    stdio = {n: s for n, s in servers.items() if s.get("command")}
-    gate([f"MCP {n} does not start: {why}" for n, s in stdio.items() if (why := mcp_starts(s, cwd=root))])
-    print(f"ok: {len(stdio)} stdio MCP server(s) start: {', '.join(stdio) or 'none'}")
-    return verify(pack)
+def bigbang(pack, args, dry):
+    """One command per checkout: setup, the guardrail, the gate, burndown, loop and tanks (skills/bigbang)."""
+    import importlib.util
+    path = Path(__file__).resolve().parent.parent / "bigbang" / "modules.py"
+    spec = importlib.util.spec_from_file_location("bigbang_modules", path)
+    modules = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modules)
+    return modules.main(sys.modules[__name__], pack, args, dry)
 
 
 def skill_tags(pack, offered):
@@ -1250,9 +1301,7 @@ def skill_tags(pack, offered):
     aliases = {slug(p): pack.repo(r) for r, p in pack.publisher.items()}
     for d, items in pack.domains.items():
         dtags = set(pack.domain_tags.get(d, ())) | ({d} if d in pack.tags else set())
-        for item in items:
-            if item.startswith("mcp:"):
-                continue
+        for item in skills_only(items):
             repo_part, _, name = item.partition(":")
             repo = (pack.repo(repo_part) or aliases.get(repo_part.lower())) if name else pack.repo(repo_part)
             if repo and name and (repo, name) in by_skill:

@@ -64,36 +64,43 @@ class KitTest(unittest.TestCase):
         target = self.h / "greenfield"
         target.mkdir()
         index = self.h / "index.json"
-        pack = mock.Mock(domains={"core": ["mcp:example"]}, mcp={"example": "example-server"})
-        real_run = K.run
-
-        def run(cmd, **kwargs):
-            if cmd[:3] == ["claude", "mcp", "add"]:
-                root = kwargs["cwd"]
-                self.assertEqual(root, target.resolve())
-                self.assertTrue((root / ".git").is_dir())
-                (root / ".mcp.json").write_text(json.dumps({"mcpServers": {
-                    "example": {"command": "example-server"}}}))
-                return subprocess.CompletedProcess(cmd, 0)
-            if cmd[:3] == ["claude", "mcp", "remove"]:
-                return subprocess.CompletedProcess(cmd, 0)
-            return real_run(cmd, **kwargs)
-
-        with (chdir(target), mock.patch.object(K, "INDEX", index),
-              mock.patch.object(K, "main") as starter, mock.patch.object(K, "resolve", return_value={}),
-              mock.patch.object(K, "run", side_effect=run), mock.patch.object(K.shutil, "which", return_value=True),
-              mock.patch.object(K, "verify", return_value=0), mock.patch.object(K, "mcp_starts", return_value="") as start):
-            self.assertEqual(K.bigbang(pack, [], True), 0)
+        index.touch()
+        pack = mock.Mock(domains={"web": []}, items={"web": []}, compass={"core": [K.Item("module", "guardrail")]},
+                         mcp={}, agents=["claude-code"])
+        with (chdir(target), mock.patch.object(K, "INDEX", index), mock.patch.object(K, "verify", return_value=0)):
+            self.assertEqual(K.bigbang(pack, ["web", "--dry-run"], False), 0)
             self.assertEqual(list(target.iterdir()), [])
-            start.assert_not_called()
-            starter.assert_called_once_with(["kit-starter-pack", "--dry-run"])
-            index.touch()
             existing = target / "notes.md"
             existing.write_text("Existing requirements")
-            self.assertEqual(K.bigbang(pack, [], False), 0)
+            self.assertEqual(K.bigbang(pack, ["web"], False), 0)
             self.assertEqual(existing.read_text(), "Existing requirements")
-            self.assertIn('[mcp_servers.example]', (target / ".codex/config.toml").read_text())
-            start.assert_called_once_with({"command": "example-server"}, cwd=target.resolve())
+            self.assertTrue((target / ".git").is_dir())
+            self.assertTrue((target / "guardrail.toml").is_file())
+
+    def test_local_group_publishes_explicit_only(self):
+        src = self.h / "skills/kit-dev/ota-ci"
+        src.mkdir(parents=True)
+        (src / "SKILL.md").write_text("---\nname: ota-ci\ndescription: Use when testing the dev env.\n---\n\nbody\n")
+        pack = mock.Mock(publisher={}, rows={})
+        with mock.patch.object(K, "local_groups", return_value={"kit-dev": {"ota-ci": src / "SKILL.md"}}):
+            plugins = K.build_market(pack, {})
+        self.assertEqual([p["name"] for p in plugins], ["kit-dev"])
+        skill = K.MARKET / "plugins/kit-dev/skills/ota-ci"
+        text = (skill / "SKILL.md").read_text()
+        self.assertIn("disable-model-invocation: true", text)
+        self.assertIn("kit-dev:", text)
+        self.assertIn("allow_implicit_invocation: false", (skill / "agents/openai.yaml").read_text())
+        self.assertEqual(sorted(K.local_groups()), ["kit-dev"])
+        self.assertNotIn("ota-ci", K.repository_skills())
+
+    def test_domain_items_are_typed(self):
+        text = K.PACK.read_text()
+        pack = K.Pack(text)
+        self.assertEqual({i.kind for i in pack.items["core"]}, {"skill", "mcp"})
+        self.assertEqual({i.kind for items in pack.compass.values() for i in items}, {"module"})
+        self.assertNotIn("mcp:tree-sitter", K.skills_only(pack.domains["core"]))
+        with self.assertRaises(SystemExit):
+            K.Pack(text.replace("1. module:tanks", "1. module:nope"))
 
     def test_unused_and_prune_keep_used_plugins(self):
         (self.h / "settings.json").write_text(json.dumps({"enabledPlugins": {

@@ -33,3 +33,6 @@ behind previous work.
 - **deterMDinistic** audits Markdown documents and fixes inconsistent
   structure so tools can read values directly. It preserves the document's
   meaning and flags ambiguous values for review.
+  Its value for tickets: it indexes ticket ids in any tracker convention and the
+  many-to-many links between them (tickets, requirements, goals), queryable in
+  DuckDB, and Bigbang's burndown reads the roadmap through it.

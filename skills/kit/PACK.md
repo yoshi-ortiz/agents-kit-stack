@@ -124,6 +124,30 @@ Tags: code
 8. research
 9. mcp:tree-sitter
 
+## sketch
+
+Tags: design
+
+Brief and prototype tooling, before any stack is chosen (`bigbang sketch`).
+
+1. frontend-design
+2. research
+
+## astro
+
+Tags: web
+
+Manifest: domains/astro.toml
+
+1. frontend-design
+2. modern-web-guidance
+
+## book
+
+Tags: docs
+
+Manifest: domains/book.toml (not code: Markdown chapters built with pandoc).
+
 ## architecture
 
 1. backnotprop/pstack:architect
@@ -156,6 +180,38 @@ Tags: apple, swift
 
 1. tuist/agent-skills: using-tuist-generated-projects, debug-generated-project, fix-flaky-tests
 2. mindrally/skills: swift, swiftui-development
+
+# Context compass
+
+How agents work in a project and what it costs: bigbang modules, never stacks. `core` is always on;
+`bigbang <domain> --compass goals,babysitter,tanks` adds the rest.
+
+## core
+
+1. module:guardrail
+2. module:gate
+3. module:burndown
+4. module:loop
+5. module:index
+6. module:shots
+
+## goals
+
+The owner's words kept verbatim in docs/specs/requirements.md, and a `req:` on every ticket.
+
+1. module:goals
+
+## babysitter
+
+CEO > CTO > SWE goldfish, started by a `shot:` prompt; one live CTO and SWE, kept by `bigbang ledger`.
+
+1. module:babysitter
+
+## tanks
+
+Paid token spend per vendor on the case suite, against each vendor's context shot. Runs only with `--paid`.
+
+1. module:tanks
 
 # Helpers
 

@@ -5,6 +5,7 @@ Fields are single-line bullets such as '- Status: Open' or '- **Status:** Open'.
 ATX headings scope fields. Values are returned as Markdown strings.
 Use --sum or --count-ol to calculate a value and --expect to check it.
 Use 'query --help' for DuckDB-backed table analytics.
+Use 'tickets --help' to index ticket ids and their many-to-many links (DuckDB with --sql).
 """
 
 import argparse
@@ -412,9 +413,172 @@ def query_main():
     return int(not result.get("matches", True))
 
 
+SEGMENT = " · "
+SEGMENT_FIELD = re.compile(r"^(?P<key>[^\W\d][\w-]*)\s*:\s*(?P<value>.*)$")
+SEGMENT_WORD = re.compile(r"^(?P<key>[^\W\d][\w-]*)\s+(?P<value>\S.*)$")
+LOOSE_FIELD = re.compile(r"^(?P<key>[^\W\d][\w-]*):[ \t]+(?P<value>\S.*)$")
+BULLET_ITEM = re.compile(r"^[-+*][ \t]+(?P<body>.*)$")
+ID_TOKEN = re.compile(r"[\w.-]+")
+
+
+def ticket_ids(text, patterns):
+    """Every token of text that fully matches one of the compiled patterns, in order, without repeats."""
+    found = []
+    for token in ID_TOKEN.findall(text):
+        token = token.strip(".")
+        if token and token not in found and any(p.fullmatch(token) for p in patterns):
+            found.append(token)
+    return found
+
+
+def tickets(text, patterns, path=""):
+    """Index ticket lines and the many-to-many links between them.
+
+    A ticket line is a heading or a top-level bullet whose first ` · ` segment holds an id matching a pattern:
+    `- ENG-101 · req: R1, R2 · entry: ...` or `## Epic: ENG-100 · name`. Each later `key: value` segment (or
+    `word ids` segment, such as `refines R1`) is a field; every id inside a field value is a link
+    {from, field, to}. A `Key: ids` line directly under a ticket heading links from that heading's ticket.
+    """
+    patterns = [re.compile(p) if isinstance(p, str) else p for p in patterns]
+    bodies = [line.rstrip("\r\n") for line in source_lines(text)]
+    report = {"tickets": [], "links": [], "diagnostics": []}
+    headings, heading_ticket, seen = [], None, {}
+
+    def issue(line, code, key=None):
+        entry = {"file": path, "line": line, "code": code}
+        if key is not None:
+            entry["key"] = key
+        report["diagnostics"].append(entry)
+
+    def link(source, key, value, number):
+        for target in ticket_ids(value, patterns):
+            report["links"].append({"from": source, "field": key, "to": target, "file": path, "line": number})
+
+    for index, line in visible_lines(bodies, issue):
+        number = index + 1
+        heading = HEADING.match(line)
+        bullet = None if heading else BULLET_ITEM.match(line)
+        if heading:
+            body = heading_title(heading)
+            level = len(heading[1])
+            while headings and headings[-1][0] >= level:
+                headings.pop()
+            headings.append((level, body))
+            heading_ticket = None
+        elif bullet:
+            body = bullet["body"]
+        else:
+            loose = LOOSE_FIELD.match(line)
+            if loose and heading_ticket:
+                heading_ticket["fields"].setdefault(loose["key"], loose["value"].strip())
+                link(heading_ticket["id"], loose["key"], loose["value"], number)
+            continue
+        segments = [s.strip() for s in body.split(SEGMENT)]
+        head = segments[0]
+        ids = ticket_ids(head, patterns)
+        if not ids:
+            continue
+        ticket_id = ids[0]
+        label = head[:head.find(ticket_id)].strip().rstrip(":").strip()
+        parents = headings[:-1] if heading else headings
+        ticket = {"id": ticket_id, "file": path, "line": number, "kind": "heading" if heading else "item",
+                  "label": label, "heading": [name for _, name in parents], "fields": {}, "text": []}
+        rest = head[head.find(ticket_id) + len(ticket_id):].strip()
+        if rest:
+            ticket["text"].append(rest)
+        for segment in segments[1:]:
+            field = SEGMENT_FIELD.match(segment)
+            word = None if field else SEGMENT_WORD.match(segment)
+            if word and not ticket_ids(word["value"], patterns):
+                word = None
+            match = field or word
+            if not match:
+                ticket["text"].append(segment)
+                continue
+            key, value = match["key"], match["value"].strip()
+            if key in ticket["fields"]:
+                issue(number, "duplicate_field", key)
+                continue
+            ticket["fields"][key] = value
+            link(ticket_id, key, value, number)
+        if ticket_id in seen:
+            issue(number, "duplicate_ticket", ticket_id)
+        else:
+            seen[ticket_id] = number
+        report["tickets"].append(ticket)
+        if heading:
+            heading_ticket = ticket
+    return report
+
+
+def tickets_tables(reports, duckdb):
+    """Load ticket reports into DuckDB tables `tickets`, `fields` and `links` (the many-to-many edge table)."""
+    connection = duckdb.connect(":memory:", config={"threads": 1, "enable_external_access": False})
+    connection.execute("CREATE TABLE tickets (id VARCHAR, file VARCHAR, line INTEGER, kind VARCHAR, label VARCHAR, "
+                       "heading VARCHAR, text VARCHAR)")
+    connection.execute("CREATE TABLE fields (id VARCHAR, key VARCHAR, value VARCHAR, file VARCHAR, line INTEGER)")
+    connection.execute("CREATE TABLE links (src VARCHAR, field VARCHAR, dst VARCHAR, file VARCHAR, line INTEGER)")
+    for report in reports:
+        rows = report["tickets"]
+        if rows:
+            connection.executemany("INSERT INTO tickets VALUES (?, ?, ?, ?, ?, ?, ?)", [
+                [t["id"], t["file"], t["line"], t["kind"], t["label"], " / ".join(t["heading"]), SEGMENT.join(t["text"])]
+                for t in rows])
+        values = [[t["id"], k, v, t["file"], t["line"]] for t in rows for k, v in t["fields"].items()]
+        if values:
+            connection.executemany("INSERT INTO fields VALUES (?, ?, ?, ?, ?)", values)
+        if report["links"]:
+            connection.executemany("INSERT INTO links VALUES (?, ?, ?, ?, ?)", [
+                [e["from"], e["field"], e["to"], e["file"], e["line"]] for e in report["links"]])
+    return connection
+
+
+def tickets_main():
+    parser = argparse.ArgumentParser(
+        prog=f"{Path(sys.argv[0]).name} tickets",
+        description="Index ticket ids and their many-to-many links across Markdown documents.")
+    parser.add_argument("paths", type=Path, nargs="+", help="UTF-8 Markdown documents")
+    parser.add_argument("--pattern", action="append", required=True, metavar="REGEX",
+                        help="a ticket id fully matches one; repeat for several conventions (ENG-123, R1, BUG-7)")
+    parser.add_argument("--sql", metavar="QUERY",
+                        help="DuckDB query over tables tickets, fields and links(src, field, dst); needs DuckDB")
+    args = parser.parse_args(sys.argv[2:])
+    try:
+        patterns = [re.compile(p) for p in args.pattern]
+    except re.error as error:
+        parser.error(f"--pattern: {error}")
+    reports = []
+    for path in args.paths:
+        try:
+            reports.append(tickets(path.read_bytes().decode("utf-8"), patterns, str(path)))
+        except (OSError, UnicodeError) as error:
+            parser.exit(2, f"{error}\n")
+    diagnostics = [d for r in reports for d in r["diagnostics"]]
+    if args.sql is None:
+        merged = {key: [item for r in reports for item in r[key]] for key in ("tickets", "links", "diagnostics")}
+        print(json.dumps(merged, ensure_ascii=False, indent=2))
+        return int(bool(diagnostics))
+    try:
+        import duckdb
+    except ModuleNotFoundError:
+        requirements = Path(__file__).with_name("requirements-analytics.txt")
+        parser.error(f"--sql requires DuckDB. Install using python -m pip install -r {str(requirements)!r}")
+    try:
+        with tickets_tables(reports, duckdb) as connection:
+            cursor = connection.execute(args.sql)
+            names = [column[0] for column in cursor.description]
+            rows = [dict(zip(names, row)) for row in cursor.fetchall()]
+    except duckdb.Error as error:
+        parser.error(str(error))
+    print(json.dumps({"rows": rows, "diagnostics": diagnostics}, ensure_ascii=False, default=str))
+    return int(bool(diagnostics))
+
+
 def main():
     if sys.argv[1:2] == ["query"]:
         return query_main()
+    if sys.argv[1:2] == ["tickets"]:
+        return tickets_main()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("path", type=Path, help="UTF-8 Markdown document")
     mode = parser.add_mutually_exclusive_group()

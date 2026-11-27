@@ -7,7 +7,7 @@ from importlib.util import find_spec
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from determdinistic import audit, calculate  # noqa: E402
+from determdinistic import audit, calculate, tickets  # noqa: E402
 
 
 class AuditTests(unittest.TestCase):
@@ -150,6 +150,54 @@ class QueryTests(unittest.TestCase):
         result = self.run_query("--metric", "sum:Amount", "--decimal", "Amount=1")
         self.assertEqual(result.returncode, 2)
         self.assertIn(b"line 11", result.stderr)
+
+
+LINEAR = r"[A-Z][A-Z0-9]*-[0-9]+"
+REQ = r"R[0-9]+(?:\.[0-9]+)?"
+ROADMAP = (
+    "## Epic: ENG-100 · Convert · benchmark: books open\n"
+    "Order: ENG-102, ENG-101\n"
+    "- ENG-101 · req: R1, R2 · entry: `Files tab` · visible: opens\n"
+    "- BUG-7 · req: R2 · visible: y · limit: hardware\n"
+    "```\n- ENG-999 · req: R1\n```\n"
+    "## R1.1 · 2026-11-27 · refines R1\n"
+    "- ENG-101 · req: R3\n"
+)
+
+
+class TicketTests(unittest.TestCase):
+    def test_links_are_many_to_many_and_skip_code(self):
+        report = tickets(ROADMAP, [LINEAR, REQ], "ROADMAP.md")
+        ids = [t["id"] for t in report["tickets"]]
+        self.assertEqual(ids, ["ENG-100", "ENG-101", "BUG-7", "R1.1", "ENG-101"])
+        edges = {(e["from"], e["field"], e["to"]) for e in report["links"]}
+        self.assertTrue({("ENG-101", "req", "R1"), ("ENG-101", "req", "R2"), ("BUG-7", "req", "R2"),
+                         ("ENG-100", "Order", "ENG-102"), ("R1.1", "refines", "R1")} <= edges)
+        self.assertNotIn("ENG-999", ids)
+        self.assertEqual(report["tickets"][0]["label"], "Epic")
+        self.assertEqual(report["tickets"][2]["fields"]["limit"], "hardware")
+        self.assertEqual([d["code"] for d in report["diagnostics"]], ["duplicate_ticket"])
+
+    def test_any_convention_by_pattern(self):
+        custom = "- S1 · req: R1\n- TODO-3 · req: R1 · blocks: S1\n- ENG-5 · req: R1\n"
+        report = tickets(custom, [r"(S|TODO)-?[0-9]+", REQ])
+        self.assertEqual([t["id"] for t in report["tickets"]], ["S1", "TODO-3"])
+        self.assertIn({"from": "TODO-3", "field": "blocks", "to": "S1", "file": "", "line": 2}, report["links"])
+
+
+@unittest.skipUnless(find_spec("duckdb"), "ticket SQL requires DuckDB")
+class TicketSqlTests(unittest.TestCase):
+    def test_requirement_to_tickets_join(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ROADMAP.md"
+            path.write_text(ROADMAP)
+            sql = "SELECT dst AS req, string_agg(DISTINCT src, ',' ORDER BY src) AS tickets FROM links " \
+                  "WHERE field = 'req' GROUP BY dst ORDER BY dst"
+            result = subprocess.run([sys.executable, str(Path(__file__).with_name("determdinistic.py")), "tickets",
+                                     str(path), "--pattern", LINEAR, "--pattern", REQ, "--sql", sql],
+                                    capture_output=True, text=True)
+            rows = json.loads(result.stdout)["rows"]
+            self.assertIn({"req": "R2", "tickets": "BUG-7,ENG-101"}, rows)
 
 
 if __name__ == "__main__":

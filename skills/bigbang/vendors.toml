@@ -1,0 +1,29 @@
+# Each vendor's consumable sources: the model spec (version, context window) and its prompting practices.
+# `shots` caches them under ~/.cache/kit/vendors/<vendor>/ and refreshes them after `max_age_days`.
+# A `models` command is a free local dump; `docs` is the vendor's llms.txt (checked 2026-11-27).
+
+max_age_days = 3
+
+[anthropic]
+agents = ["claude-code"]
+models = "claude -p /context --output-format json --no-session-persistence"
+docs = "https://platform.claude.com/llms.txt"
+
+[openai]
+agents = ["codex"]
+models = "codex debug models"
+docs = "https://learn.chatgpt.com/docs/llms.txt"
+
+[google]
+agents = ["antigravity"]
+docs = "https://aistudio.google.com/llms.txt"
+
+[pi]
+agents = ["pi"]
+models = "pi --list-models"
+
+[cursor]
+agents = ["cursor"]
+
+[zed]
+agents = ["zed"]

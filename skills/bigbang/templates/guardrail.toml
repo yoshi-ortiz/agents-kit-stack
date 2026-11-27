@@ -1,0 +1,37 @@
+# Guardrail: the project facts bigbang's gate, burndown, loop and tanks read.
+# Owner-owned: a change lands in a commit with an `Owner-Approved: <name>` trailer.
+
+domains = @DOMAINS@                 # the project's stack(s), from PACK.md # Domains
+compass = @COMPASS@                 # context compass layers beside core: goals, babysitter, tanks
+base = "@BASE@"                    # branch every change must hold
+test = "@TEST@"                    # shell command; exit code is the verdict
+spec = "docs/specs"                # holds requirements.md: the owner's words, verbatim and dated
+
+[limits]                           # name = path or glob; a change touching one fails the gate
+# hardware = "contracts/hardware.toml"
+
+[ids]                              # ticket ids: any tracker convention, as one regex
+pattern = "[A-Z][A-Z0-9]*-[0-9]+"  # Linear/Jira style ENG-123; custom: "(EPIC|S|BUG|TODO)-?[0-9]+"
+# url = "https://linear.app/<workspace>/issue/{id}"
+# export = "scripts/push-states.sh"   # runs only with --sync; reads one burndown row as JSON on stdin
+
+[burndown]
+select = "@SELECT@"                # runs one ticket's tagged tests; {id}, {tid}, {lid}
+tests = ["tests/**", "**/*_test.*", "**/test_*.*", "**/*.test.*", "**/*_test.go"]
+
+[receipts]                         # a ticket reads live only with a committed receipt: receipts/<id>/
+dir = "receipts"                   # journey.md (entry → visible, step by step) and screenshots of the visible result
+required = true
+
+[evidence]                         # ticket id = command; exit code is the verdict
+# "ENG-101" = "scripts/journey.sh ENG-101"
+
+[loop]
+max_steps = 5                      # per run; only the owner raises it
+stale_hours = 3                    # a ledger entry silent this long no longer blocks
+
+[tanks]
+agents = @AGENTS@  # names from PACK.md # Agents
+reps = 3
+max_cost_usd = 5.0
+covers = ["AGENTS.md"]             # paths whose content hash a tank card must match
