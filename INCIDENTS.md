@@ -2,6 +2,24 @@
 
 Record of product value breaches where Kit failed its core promise (skills callable across every configured agent without preloading the catalog), traced to root causes and structural fixes.
 
+## 2026-11-27: Bigbang crashed in Antigravity and the agent reported it done
+
+### Symptom
+- In a running Antigravity session on the piano checkout, `/bigbang rust design shots and qa` produced a good QA reply but bigbang fixed nothing: no guardrail, roadmap burndown, receipts or brief.
+- The transcript shows the agent ran `python3 ~/.gemini/config/skills/kit/packages.py bigbang --dry-run`, got exit 1 with `PermissionError: Operation not permitted: …/cyber-skills/skills/bigbang/modules.py`, read it as a Metal sandbox error, and marked its "run bigbang check" step done.
+
+### Root Causes
+1. `packages.py`'s `bigbang()` (and `base.HERE`, `tokens.HERE`, `modules.py`'s import path) used `Path(__file__).resolve()`, which follows the skill link from `~/.gemini/config/skills/` to the repo. Antigravity's sandbox loaded `packages.py` through the link path but denied the resolved repo path.
+2. The skill had no hard completion criterion for `B`: a non-zero exit or a traceback could be skipped, and nothing said what a sandbox denial means or how to leave the sandbox.
+3. The skill had no route for an existing checkout without `guardrail.toml`: the agent ran `B` with no domain and only `--dry-run`, which previews and never applies.
+4. Multi-agent verification covered skill presence and startup context, never a run of `B` inside a vendor's sandbox. The breach reached the owner first.
+
+### Structural Fixes
+1. Bigbang loads its modules through the link path (`Path(__file__).absolute()`), never the resolved target. Unverified inside Antigravity: a local `sandbox-exec` emulation does not reproduce its rules.
+2. `SKILL.md` step 1: run `B` for real; the step stays open until `B` exits 0; `Operation not permitted` means rerun with the host's permission (Antigravity: `BypassSandbox`); an unfixable `FAIL` goes to the owner as its exact line.
+3. `SKILL.md` step 1: a checkout with no `guardrail.toml` names its stack once, `B <domain>` or `B core`.
+4. Open: a per-vendor sandbox run of `B` (at least Antigravity) belongs in `kit-dev:verify-yoshi-stack` before the next release.
+
 ## 2026-11-25: Placeholder descriptions and a false zero-context failure
 
 ### Symptom

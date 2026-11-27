@@ -10,7 +10,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Callable
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).absolute().parent  # keep the link path: a host sandbox may allow it and deny the target
 TEMPLATES = HERE / "templates"
 DETERMDINISTIC = HERE.parent / "determdinistic" / "determdinistic.py"
 RAIL = "guardrail.toml"
