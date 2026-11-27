@@ -17,7 +17,7 @@ from base import Fail, Module, git, git_out, sh, tail
 CASES = "tanks/cases.json"
 CARD = "tanks/card.json"
 LEDGER = "TANKS.md"
-HERE = Path(__file__).resolve()
+HERE = Path(__file__).absolute()
 FIXTURES = HERE.parent / "fixtures"
 CASE_KEYS = ("id", "fixture", "prompt", "grade", "oracle")
 QUOTA = re.compile(r"(hit your (weekly|session|5-hour|usage) limit|usage limit|rate limit|out of extra usage|"

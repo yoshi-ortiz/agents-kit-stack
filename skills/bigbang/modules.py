@@ -16,7 +16,7 @@ import shutil
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).absolute().parent))
 
 from base import Ctx, Fail, Module, git, read_rail, sh, tail  # noqa: E402
 import burndown as burndown_mod  # noqa: E402

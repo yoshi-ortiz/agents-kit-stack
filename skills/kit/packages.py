@@ -1287,7 +1287,7 @@ def mcp_starts(spec, timeout=60, *, cwd=None):
 def bigbang(pack, args, dry):
     """One command per checkout: setup, the guardrail, the gate, burndown, loop and tanks (skills/bigbang)."""
     import importlib.util
-    path = Path(__file__).resolve().parent.parent / "bigbang" / "modules.py"
+    path = Path(__file__).absolute().parent.parent / "bigbang" / "modules.py"  # link path, not its target: sandboxes
     spec = importlib.util.spec_from_file_location("bigbang_modules", path)
     modules = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modules)

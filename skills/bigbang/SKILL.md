@@ -36,9 +36,13 @@ gives the vocabulary: module, interface, seam, depth).
 
 ## Every session
 
-1. Run `B`. Each module prints `ok`, `done:` or `FAIL: … · fix: …`. Apply each
-   fix and run `B` again. Done when only `ok` and report lines remain; a `FAIL`
-   the fix cannot clear goes to the owner as its exact line.
+1. Run `B` for real (`--dry-run` only previews). A checkout with no
+   `guardrail.toml` names its stack once: `B <domain>`, or `B core` for code
+   with no closer domain. Each module prints `ok`, `done:` or `FAIL: … · fix: …`;
+   apply each fix and run `B` again. This step stays open until `B` exits 0.
+   A traceback with `Operation not permitted` is the host sandbox: rerun `B`
+   with the host's permission to leave it (Antigravity: `BypassSandbox`). A
+   `FAIL` no fix clears goes to the owner as its exact line.
 2. Follow the header of the project's `ROADMAP.md` for status, priority, spec
    and build requests. Building follows `runbooks/loop.md`.
 
