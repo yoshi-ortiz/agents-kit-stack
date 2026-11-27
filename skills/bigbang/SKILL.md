@@ -1,6 +1,6 @@
 ---
 name: bigbang
-description: Use when starting a project from a prompt or sketch, resuming work in a checkout, a session opens with @ROADMAP.md, or the owner asks about roadmap status, priorities, spec changes, or agent context and token spend per vendor.
+description: Bootstrap a project from a prompt or sketch, untangle a chaotic codebase, burn down its @ROADMAP.md (status, priority, spec change), or audit each vendor's context and token spend.
 ---
 
 # Bigbang
@@ -17,6 +17,22 @@ description: Use when starting a project from a prompt or sketch, resuming work 
   the owner's words, and show both. The stack waits for the owner's approval.
 - A `FAIL` naming `scaffold-plan.md`: hand that file alone to a goldfish (a
   fresh small-model session); on a host with no session tool, run it yourself.
+
+## A codebase in chaos
+
+The target: every file has one **home**, the place its domain keeps that kind
+of code, asset or config, and each module is **deep** (`kit use codebase-design`
+gives the vocabulary: module, interface, seam, depth).
+
+1. Run `B <domain>` on the checkout. Existing files stay where they are.
+2. Map it: one line per top-level path with its domain, its role and its home.
+   Done when every path has a home or is marked homeless, duplicate or shallow.
+3. Turn the map into a layout epic in `ROADMAP.md`: one ticket per move or
+   deepening, each with `entry:` and `visible:`. Show the map and the epic to
+   the owner; the approval is the commit's `Owner-Approved` trailer, and each
+   structure decision goes in that commit's body.
+4. Burn the epic with `runbooks/loop.md`, one move per ticket, the gate green
+   after each. `B` rebuilds the `AGENTS.md` index as homes change.
 
 ## Every session
 
