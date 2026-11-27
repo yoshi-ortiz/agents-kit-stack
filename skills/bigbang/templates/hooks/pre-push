@@ -1,0 +1,9 @@
+#!/bin/sh
+# bigbang gate: a push to base lands only on the same evidence `bigbang` checks.
+kit="${BIGBANG_KIT:-$HOME/.agents/skills/kit/packages.py}"
+[ -f "$kit" ] || kit="$HOME/.claude/skills/kit/packages.py"
+[ -f "$kit" ] || { echo "bigbang gate: kit not found; set BIGBANG_KIT to packages.py" >&2; exit 1; }
+while read -r local_ref local_sha remote_ref remote_sha; do
+  BIGBANG_PUSH="$remote_ref $remote_sha $local_sha" python3 "$kit" bigbang --only gate </dev/null || exit 1
+done
+exit 0

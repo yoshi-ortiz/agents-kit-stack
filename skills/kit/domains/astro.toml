@@ -1,0 +1,21 @@
+name = "astro"
+kind = "code"
+summary = "Astro static website"
+names = ["astro", "static site", "static website"]
+requires = ["node>=22", "npm"]
+
+[packages]
+"npm:create-astro" = "latest-safe"
+"npm:astro" = "latest-safe"
+
+[scaffold]
+steps = [
+  "npx --yes create-astro@{npm:create-astro} . --template minimal --no-install --no-git --skip-houston --yes",
+  "npm install astro@{npm:astro} --save-exact",
+]
+check = "npm run build"
+ignore = ["node_modules/", "dist/", ".astro/"]
+
+[guardrail]
+test = "npm run build"
+select = "npm test -- -t '^{id}: '"

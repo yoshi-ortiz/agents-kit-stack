@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# vk: drive this checkout's Kit/bigbang CLI against a throwaway HOME and an empty project.
+#
+#   vk launch                         create a run; prints its dir (pass it to every other command)
+#   vk doctor  <run>                  read-only: is this run worth driving?
+#   vk kit     <run> <label> [--cwd repo|proj] -- <packages.py args...>
+#   vk sh      <run> <label> [--cwd repo|proj] -- <command...>
+#   vk cleanup <run>                  delete the run (home + project); keep its evidence
+#
+# Evidence: $VK_EVIDENCE/<run-id>/<label>/{cmd,cwd,stdout,stderr,exit,status.before,status.after,tree.after}
+set -euo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+KIT="$REPO/skills/kit/packages.py"
+REAL_HOME="${VK_REAL_HOME:-$HOME}"
+STATE="$REAL_HOME/.cache/verify-yoshi-stack"
+SEED="$STATE/kit-cache"                         # cloned ~/.cache/kit, so a launch skips the 3-4 min catalog clone
+VK_EVIDENCE="${VK_EVIDENCE:-$STATE/evidence}"
+TMP="${TMPDIR:-/tmp}"
+RUNS="${VK_RUNS:-${TMP%/}/verify-yoshi-stack/runs}"
+
+die() { echo "vk: $*" >&2; exit 2; }
+
+run_env() {  # the only environment a driven command sees differ from the caller's
+  local run="$1"
+  echo HOME="$run/home" CODEX_HOME="$run/home/.codex" GIT_CONFIG_GLOBAL="$run/home/.gitconfig" VK_REAL_HOME="$REAL_HOME"
+}
+
+check_run() {
+  [[ -n "${1:-}" && -f "$1/.vk-run" ]] || die "not a vk run: ${1:-<missing>} (create one with: vk launch)"
+}
+
+launch() {
+  [[ -f "$REAL_HOME/.vk-run-home" ]] && die "HOME is already a vk run home; run vk from your own shell"
+  local id run; id="$(date +%Y%m%d-%H%M%S)-$$"; run="$RUNS/$id"
+  mkdir -p "$run/home/.codex" "$run/proj" "$VK_EVIDENCE/$id"
+  echo "$id" > "$run/.vk-run"; touch "$run/home/.vk-run-home"
+  printf '[user]\n\tname = vk\n\temail = vk@verify.invalid\n[init]\n\tdefaultBranch = main\n' > "$run/home/.gitconfig"
+  if [[ -d "$SEED" ]]; then
+    mkdir -p "$run/home/.cache"; cp -Rc "$SEED" "$run/home/.cache/kit" 2>/dev/null || cp -R "$SEED" "$run/home/.cache/kit"
+  fi
+  # Make the throwaway home look like a synced machine: index, link core skills, deny tools.
+  (cd "$REPO" && env $(run_env "$run") python3 "$KIT" dev-sync) > "$VK_EVIDENCE/$id/launch.log" 2>&1 \
+    || { tail -20 "$VK_EVIDENCE/$id/launch.log" >&2; die "dev-sync failed in $run (log: $VK_EVIDENCE/$id/launch.log)"; }
+  (cd "$REPO" && env $(run_env "$run") python3 "$KIT" tools) >> "$VK_EVIDENCE/$id/launch.log" 2>&1
+  if [[ ! -d "$SEED" ]]; then mkdir -p "$STATE"; cp -Rc "$run/home/.cache/kit" "$SEED" 2>/dev/null || cp -R "$run/home/.cache/kit" "$SEED"; fi
+  grep -E '^ok: agents:' "$VK_EVIDENCE/$id/launch.log" >&2 || true
+  echo "$run"
+}
+
+doctor() {
+  local run="$1" bad=0 h="$1/home"; check_run "$run"
+  say() { echo "$1: $2"; [[ "$1" == FAIL ]] && bad=1; return 0; }
+  for t in python3 git npx; do command -v "$t" >/dev/null && say ok "$t on PATH" || say FAIL "$t missing"; done
+  for t in claude codex; do command -v "$t" >/dev/null && say ok "$t on PATH" || say warn "$t missing: its agent checks are skipped"; done
+  say ok "repo $REPO @ $(git -C "$REPO" rev-parse --abbrev-ref HEAD) $(git -C "$REPO" rev-parse --short HEAD)"
+  local dirty; dirty="$(git -C "$REPO" status --porcelain -- skills/kit | wc -l | tr -d ' ')"
+  [[ "$dirty" == 0 ]] && say ok "skills/kit committed" || say warn "$dirty uncommitted path(s) under skills/kit: verify will FAIL on them"
+  for a in .claude/skills .agents/skills .cursor/skills .gemini/config/skills; do
+    local target; target="$(realpath "$h/$a/kit" 2>/dev/null || true)"
+    [[ "$target" == "$REPO/skills/kit" ]] && say ok "$a/kit resolves to this checkout" || say FAIL "$a/kit -> ${target:-missing} (relaunch)"
+  done
+  [[ -d "$h/.cache/kit" ]] && say ok "catalog cache present" || say FAIL "no catalog cache in run home"
+  grep -rqsF "$REAL_HOME/." "$h/.claude/settings.json" "$h/.codex/config.toml" && say FAIL "run home config names the real HOME" || say ok "run home is isolated"
+  git -C "$run/proj" rev-parse --git-dir >/dev/null 2>&1 && say ok "proj is a git repo" || say ok "proj is empty (not yet git)"
+  return $bad
+}
+
+drive() {  # drive <kit|sh> <run> <label> [--cwd repo|proj] -- args...
+  local mode="$1" run="$2" label="$3" cwd; shift 3; check_run "$run"; cwd="$run/proj"
+  if [[ "${1:-}" == --cwd ]]; then case "$2" in repo) cwd="$REPO";; proj) ;; *) die "--cwd repo|proj";; esac; shift 2; fi
+  [[ "${1:-}" == -- ]] && shift
+  local ev="$VK_EVIDENCE/$(cat "$run/.vk-run")/$label"; mkdir -p "$ev"
+  local -a cmd; [[ "$mode" == kit ]] && cmd=(python3 "$KIT" "$@") || cmd=("$@")
+  printf '%q ' "${cmd[@]}" > "$ev/cmd"; echo >> "$ev/cmd"; echo "$cwd" > "$ev/cwd"
+  (cd "$run/proj" && git status --porcelain 2>/dev/null) > "$ev/status.before" || true
+  set +e; (cd "$cwd" && env $(run_env "$run") "${cmd[@]}") > "$ev/stdout" 2> "$ev/stderr"; local code=$?; set -e
+  echo "$code" > "$ev/exit"
+  (cd "$run/proj" && git status --porcelain 2>/dev/null) > "$ev/status.after" || true
+  (cd "$run/proj" && find . -path ./.git -prune -o -type f -print | sort) > "$ev/tree.after"
+  cat "$ev/stdout"; cat "$ev/stderr" >&2
+  echo "vk: exit $code · evidence $ev" >&2
+  return "$code"
+}
+
+cleanup() {
+  local run="$1"; check_run "$run"
+  local id; id="$(cat "$run/.vk-run")"
+  local pid; for pid in $(ps -axo pid=,command= | awk -v r="$run/" 'index($0, r) && !/awk/ {print $1}'); do
+    kill "$pid" 2>/dev/null || true  # only processes whose command line names this run
+  done
+  chmod -R u+w "$run" 2>/dev/null || true; rm -rf "$run"
+  echo "removed $run; evidence kept at $VK_EVIDENCE/$id"
+}
+
+case "${1:-}" in
+  launch) launch ;;
+  doctor) doctor "${2:-}" ;;
+  kit|sh) [[ $# -ge 3 ]] || die "usage: vk $1 <run> <label> [--cwd repo|proj] -- args"; drive "$@" ;;
+  cleanup) cleanup "${2:-}" ;;
+  *) sed -n '2,10p' "$0"; exit 2 ;;
+esac

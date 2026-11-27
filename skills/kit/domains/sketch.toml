@@ -1,0 +1,9 @@
+# Brief and prototype before any stack. `bigbang sketch` stops on purpose until the owner approves a domain.
+name = "sketch"
+kind = "sketch"
+summary = "A brief and a prototype the owner can open, before any stack"
+names = ["idea", "prototype", "brainstorm", "sketch"]
+
+[scaffold]
+files = { "sketch/BRIEF.md" = "sketch/BRIEF.md", "sketch/prototype/index.html" = "sketch/index.html" }
+check = "python3 {determdinistic} sketch/BRIEF.md"   # exit 0 once every brief field is filled

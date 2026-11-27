@@ -1,0 +1,14 @@
+name = "book"
+kind = "docs"
+summary = "A book written in Markdown, built to HTML and EPUB with pandoc"
+names = ["book", "novel", "manuscript", "ebook"]
+requires = ["pandoc>=3"]
+
+[scaffold]
+files = { "book.md" = "book/book.md", "chapters/01.md" = "book/01.md" }
+check = "mkdir -p dist && pandoc book.md chapters/*.md -o dist/book.html"
+ignore = ["dist/"]
+
+[guardrail]
+test = "mkdir -p dist && pandoc book.md chapters/*.md -o dist/book.epub"
+select = "grep -l '{id}' chapters/*.md"

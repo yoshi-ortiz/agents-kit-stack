@@ -1,0 +1,9 @@
+[
+  {
+    "id": "gate-red-test",
+    "fixture": "tanks/fixtures/gate-red-test.sh",
+    "prompt": "tanks/prompts/gate-red-test.md",
+    "grade": "python3 -m unittest -q 2>/dev/null && ! git grep -q 'TODO(ENG-1)' && git log -1 --format=%s | grep -q '^ENG-1: '",
+    "oracle": "tanks/oracle/gate-red-test.sh"
+  }
+]

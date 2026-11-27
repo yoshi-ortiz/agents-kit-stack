@@ -1,0 +1,6 @@
+#!/bin/sh
+# bigbang gate: a merge commit lands only on the same evidence `bigbang` checks.
+kit="${BIGBANG_KIT:-$HOME/.agents/skills/kit/packages.py}"
+[ -f "$kit" ] || kit="$HOME/.claude/skills/kit/packages.py"
+[ -f "$kit" ] || { echo "bigbang gate: kit not found; set BIGBANG_KIT to packages.py" >&2; exit 1; }
+exec python3 "$kit" bigbang --only gate
